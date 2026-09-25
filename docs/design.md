@@ -1,6 +1,7 @@
 # RaktSetu design document
 
-Status: **v0.1, Phase 0**. Review and sign-off by all three members is the Phase 0 exit gate.
+Status: **v0.1, Phase 0**. Solo project by Pritika Khandelwal; share with the project guide for feedback before
+Phase 1.
 
 ## 1. Problem
 

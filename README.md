@@ -9,8 +9,9 @@ Blood collection in India rose from 126.95 lakh units (2023) to 157.14 lakh (202
 17.43 lakh; expiry is the most common reason, at about 46% of discards (e-Raktkosh data, Rajya Sabha Unstarred
 Question 1882, answered 4 August 2026).
 
-RaktSetu is an OOP-in-Java course project that grows into a research prototype and a production-quality system. The
-full plan is in [`docs/roadmap/RaktSetu_Final_Roadmap.pdf`](docs/roadmap/RaktSetu_Final_Roadmap.pdf).
+RaktSetu is a solo OOP-in-Java course project by Pritika Khandelwal that grows into a research prototype and a
+production-quality system. The full plan is in
+[`docs/roadmap/RaktSetu_Final_Roadmap.pdf`](docs/roadmap/RaktSetu_Final_Roadmap.pdf).
 
 ## Status
 

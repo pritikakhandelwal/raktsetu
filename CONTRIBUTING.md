@@ -1,11 +1,14 @@
-# How we work
+# How I work
+
+RaktSetu is a one-person project. These rules stand in for the reviews a team would give.
 
 ## Branches and pull requests
 
-- `main` is always green. Nobody pushes to it directly.
+- `main` is always green. Changes go in through pull requests, not direct pushes.
 - One branch per change, named after the roadmap module: `m1-inventory`, `m5-request-service`, `docs-uml-v1`.
-- Open a pull request early. It needs **one review from a teammate who did not write the code**, and CI must pass.
-- Keep pull requests small (under ~400 changed lines where possible).
+- Before merging, re-read the whole diff against the checklist in the pull request template, and wait for CI to pass.
+  An automated code review is a useful second pair of eyes.
+- Keep pull requests small (under ~400 changed lines where possible), so each one is easy to explain in the viva.
 
 ## Before you push
 
@@ -27,13 +30,9 @@
 
 ## Weekly rhythm
 
-- **Monday:** pick issues from the project board.
-- **Friday:** demo what works on `main`; take screenshots for the report into `docs/screenshots/`.
+- **Monday:** pick issues from the project board for the current phase.
+- **Friday:** run through what works on `main`; save screenshots for the report in `docs/screenshots/`; write the
+  report notes for anything finished.
+- **Every two weeks:** show progress to the project guide for outside feedback.
 
-## Ownership (everyone must be able to explain everything)
-
-| Member | Owns |
-|---|---|
-| A | Domain model and compatibility, allocation, forecasting |
-| B | Engine and strategies, optimiser, simulator, experiments, paper |
-| C | Persistence and event store, console, server and dashboard, DevOps, executable |
+If time runs short, follow the cut list in the roadmap (Section 3.1): Phase 1 is never cut.
