@@ -58,7 +58,7 @@ raktsetu-cli ──► raktsetu-sim ──► raktsetu-engine ──► raktsetu
 - **Hospitals** hold no stock in this model; units are issued to them from centres.
 - **Audit:** append-only and hash-chained (ADR 0003).
 
-## 6. Domain model (Phase 0)
+## 6. Domain model
 
 | Type | Kind | Notes |
 |---|---|---|
@@ -72,16 +72,28 @@ raktsetu-cli ──► raktsetu-sim ──► raktsetu-engine ──► raktsetu
 | `CompatibilityResult` | record | Level and reason |
 | `RaktSetuException` + 5 subclasses | checked exceptions | |
 
-## 7. Coming next (Phase 1)
+Added in Phase 1: `BloodRequest` and `Urgency`, `TransferOrder` (proposed, completed, rejected), `UsageHistory`
+(14-day moving average), `Route` and `TableDistanceProvider`, `AuditEvent`, `WastageRecord`, `NetworkData`, and the
+`Exportable`, `AuditTrail` and `StockDataSource` interfaces.
 
-`BloodRequest`, `TransferOrder`, `Reservation`, `UsageHistory`, `BloodNetwork`, `RequestService`,
-`ExpiryRiskAnalyzer`, `FreshnessTracker`, `RedistributionStrategy` with Nearest-First and Expiry-First,
-`Repository<T>`, `CsvRepository<T>`, `DataLoader`, `AuditLogger`, `ReportWriter`, the 30-day simulator and the full
-console menu. See the roadmap, Section 6.
+## 7. Engine, persistence and simulator (Phase 1)
+
+| Area | Key types | Behaviour |
+|---|---|---|
+| Allocation | `RequestService`, `DonorPreference` | All-or-nothing; centres within 90 min by travel time; unverified data last; emergency = nearest centre first, routine = exact group first; O- kept for last |
+| Risk | `ExpiryRiskAnalyzer` | k-th FEFO unit at risk if k > usage x days left, within a 7-day look-ahead |
+| Freshness | `Freshness` | FRESH (1 day), STALE (3 days), UNVERIFIED (older or never) |
+| Redistribution | `AbstractRedistributionStrategy` + Nearest-First, Expiry-First | Template Method; only to centres with spare demand and verified data; same group only |
+| Transfers | `TransferService` | Re-checks every unit at approval; all or nothing |
+| Persistence | `CsvRepository<T>`, `DataLoader`, `AuditLogger`, `ReportWriter` | Bad rows skipped and reported; atomic writes; SHA-256 hash chain |
+| Simulator | `SampleNetworkFactory`, `Simulator` | Seeded, relative to today; common random numbers across policies |
+
+Deferred from the original M1 list: `Reservation` (only needed once several users act at once, in Phase 5).
 
 ## 8. Open questions
 
-- Which region do we calibrate the simulator to? Proposed: Pune division, Maharashtra.
-- Travel-time matrix: precompute with OSRM, or use straight-line distance with a road factor for V1?
+- Which region do we calibrate the simulator to? Proposed: Pune division, Maharashtra. (The Phase 1 sample network is
+  a synthetic stand-in with straight-line distances and a road factor.)
+- Travel-time matrix for Phase 2: precompute with OSRM on OpenStreetMap.
 - Should platelets for RhD-negative women of child-bearing age be refused rather than flagged? (Needs clinical input;
   flagged for now.)

@@ -1,5 +1,5 @@
 @startuml domain-classes
-' RaktSetu domain class diagram (v1, Phase 0). Keep in sync with raktsetu-domain.
+' RaktSetu domain class diagram (v2, end of Phase 1). Keep in sync with raktsetu-domain.
 skinparam classAttributeIconSize 0
 hide empty members
 
@@ -17,8 +17,17 @@ package interfaces {
     +canTransfuseTo(recipient : BloodGroup) : boolean
   }
   interface DistanceProvider {
-    +distanceKm(from : String, to : String) : int
-    +travelMinutes(from : String, to : String) : int
+    +route(from : String, to : String) : Optional<Route>
+  }
+  interface Exportable {
+    +toCsvRow() : List<String>
+  }
+  interface AuditTrail {
+    +record(event : AuditEvent)
+  }
+  interface StockDataSource {
+    +load() : LoadResult
+    +save(data : NetworkData)
   }
 }
 
@@ -72,6 +81,41 @@ package model {
   class StorageCentre
   class Hospital
 
+  class TransferOrder {
+    -id : String
+    -units : List<BloodComponent>
+    -plannedOn : LocalDate
+    -route : Route
+    -status : TransferStatus
+    +markCompleted()
+    +reject()
+  }
+  enum TransferStatus {
+    PROPOSED, COMPLETED, REJECTED
+  }
+  class BloodRequest <<record>> {
+    +hospitalId : String
+    +component : ComponentType
+    +recipient : BloodGroup
+    +quantity : int
+    +urgency : Urgency
+  }
+  enum Urgency {
+    ROUTINE, EMERGENCY
+  }
+  class UsageHistory {
+    +record(date, facilityId, component, group, units)
+    +averageDaily(facilityId, component, group, today) : double
+  }
+  class Route <<record>> {
+    +distanceKm : int
+    +travelMinutes : int
+  }
+  class TableDistanceProvider
+  class AuditEvent <<record>>
+  class WastageRecord <<record>>
+  class NetworkData <<record>>
+
   class Inventory {
     -stock : EnumMap<ComponentType, EnumMap<BloodGroup, PriorityQueue<BloodComponent>>>
     +add(unit : BloodComponent)
@@ -111,6 +155,20 @@ BloodComponent --> "1" BloodGroup
 Transfusable ..> CompatibilityResult
 CompatibilityResult --> Compatibility
 ComponentType ..> BloodComponent : creates
+
+DistanceProvider <|.. TableDistanceProvider
+Identifiable <|.. TransferOrder
+Exportable <|.. TransferOrder
+Exportable <|.. WastageRecord
+TransferOrder --> "1" Facility : source >
+TransferOrder --> "1" Facility : destination >
+TransferOrder --> "1..*" BloodComponent
+TransferOrder --> TransferStatus
+TransferOrder --> Route
+BloodRequest --> Urgency
+AuditTrail ..> AuditEvent
+NetworkData o-- "0..*" Facility
+NetworkData o-- UsageHistory
 
 Exception <|-- RaktSetuException
 RaktSetuException <|-- InsufficientStockException

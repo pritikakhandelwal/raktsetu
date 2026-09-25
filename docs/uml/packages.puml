@@ -1,0 +1,18 @@
+@startuml packages
+' Module dependencies. Maven enforces them, so there are no cycles.
+skinparam packageStyle rectangle
+package "raktsetu-cli" as cli
+package "raktsetu-sim" as sim
+package "raktsetu-engine" as engine
+package "raktsetu-persistence" as persistence
+package "raktsetu-domain" as domain
+cli --> sim
+cli --> engine
+cli --> persistence
+cli --> domain
+sim --> engine
+sim --> domain
+engine --> domain
+persistence --> domain
+note right of domain : pure Java, no dependencies
+@enduml
