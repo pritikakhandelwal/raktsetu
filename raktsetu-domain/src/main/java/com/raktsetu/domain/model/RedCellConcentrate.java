@@ -38,7 +38,7 @@ public final class RedCellConcentrate extends BloodComponent {
         }
         if (donor.canGiveRedCellsTo(recipient)) {
             return CompatibilityResult.of(Compatibility.COMPATIBLE,
-                    donor + " red cells are compatible with a " + recipient + " recipient");
+                    donor + " red cells are compatible with a patient of group " + recipient);
         }
         if (donor.isRhPositive() && !recipient.isRhPositive()) {
             return CompatibilityResult.of(Compatibility.INCOMPATIBLE,
@@ -46,6 +46,6 @@ public final class RedCellConcentrate extends BloodComponent {
                             + recipient + ")");
         }
         return CompatibilityResult.of(Compatibility.INCOMPATIBLE,
-                donor + " red cells carry ABO antigens that a " + recipient + " recipient's plasma attacks");
+                donor + " red cells carry ABO antigens that the plasma of a group " + recipient + " patient attacks");
     }
 }

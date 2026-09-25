@@ -20,7 +20,7 @@ production-quality system. The full plan is in
 | 0 Foundations | Repository, CI, domain model, compatibility rules, design doc, UML v1 | Done |
 | 1 Course core (V1) | 16-option console app, persistence, allocation, strategies, simulator | **Done** |
 | 2–4 Research | Digital twin, forecasting, stale-data-aware optimiser, experiments, paper | Planned |
-| 5 System (V3) | Spring Boot server, event store, REST/FHIR API, dashboard | Planned |
+| 5 System (V3) | Spring Boot server, event store, REST/FHIR API, dashboard | **Started**: REST API and web front end |
 
 ## Quick start
 
@@ -46,6 +46,39 @@ java -jar raktsetu-cli/target/raktsetu.jar --today 2026-10-01
 
 On first run the app creates a **synthetic sample network** around Pune (1 hub, 4 storage centres, 6 hospitals, about
 350 units, 14 days of usage history), dated relative to "today" so it never goes stale.
+
+## Web app
+
+The same engine also runs as a web app: a Spring Boot REST API (`raktsetu-server`) serving a single-page React front
+end (`web/`) in a black, cream and coral-red style with heavy condensed headlines. Maven builds the front end too
+(it downloads its own Node.js), so one command produces one JAR:
+
+```bash
+./mvnw package -DskipTests
+./run-web.sh --raktsetu.today=2026-10-01      # Windows: run-web.bat
+```
+
+Then open http://localhost:8080. Sections: at-risk units, emergency request and compatibility check, the network and
+each centre's shelves, transfer plans with approve and reject, the simulation, and the audit log with its hash-chain
+seal. "Next day" in the header moves the date forward. Every change is saved to `raktsetu-data/`.
+
+For front-end development with hot reload, run the server as above and then `npm run dev` in `web/`
+(http://localhost:5173 forwards `/api` to the server). `./mvnw verify -DskipFrontend` builds the Java side without
+Node.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/summary` | Headline numbers |
+| `GET /api/facilities`, `GET /api/facilities/{id}/stock` | Centres, hospitals and shelves |
+| `POST /api/facilities/{id}/units`, `POST /api/facilities/{id}/report` | Add units; record a stock report |
+| `GET /api/stock` | Network-wide stock and groups running low |
+| `POST /api/requests`, `POST /api/compatibility` | Blood requests and compatibility checks |
+| `GET /api/risks`, `GET /api/strategies`, `GET /api/strategies/compare` | Risk check and strategies |
+| `POST /api/plans`, `GET /api/transfers`, `POST /api/transfers/{id}/approve` or `/reject` | Transfer plans |
+| `GET /api/audit`, `POST /api/simulations`, `GET /api/wastage`, `POST /api/date` | Audit, simulation, wastage, date |
+
+Errors come back as `{"error": ..., "message": ...}`: 400 for bad input, 404 for an unknown facility, 409 for a refused
+operation such as not enough stock.
 
 ## Demo in five minutes
 
@@ -80,6 +113,8 @@ strategies properly needs the larger experiments planned for Phase 4.
 | `raktsetu-persistence` | CSV repositories, event store, hash-chained audit log. |
 | `raktsetu-sim` | Digital-twin simulator and experiment runner. |
 | `raktsetu-cli` | Console application (the course deliverable). |
+| `raktsetu-server` | Spring Boot REST API; serves the web front end. |
+| `web/` | React + TypeScript front end (Vite). |
 
 ## Clinical rules implemented
 

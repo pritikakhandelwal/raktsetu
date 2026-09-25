@@ -39,11 +39,11 @@ public final class FreshFrozenPlasma extends BloodComponent {
         }
         if (donor.canGivePlasmaTo(recipient)) {
             return CompatibilityResult.of(Compatibility.COMPATIBLE,
-                    donor.abo() + " plasma has no antibodies against a " + recipient.abo()
-                            + " recipient (plasma rules are the reverse of red cells)");
+                    donor.abo() + " plasma has no antibodies against group " + recipient.abo()
+                            + " red cells (plasma rules are the reverse of red cells)");
         }
         return CompatibilityResult.of(Compatibility.INCOMPATIBLE,
-                donor.abo() + " plasma carries antibodies against a " + recipient.abo()
-                        + " recipient's red cells (plasma rules are the reverse of red cells)");
+                donor.abo() + " plasma carries antibodies against group " + recipient.abo()
+                        + " red cells (plasma rules are the reverse of red cells)");
     }
 }

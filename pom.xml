@@ -18,6 +18,7 @@
         <module>raktsetu-persistence</module>
         <module>raktsetu-sim</module>
         <module>raktsetu-cli</module>
+        <module>raktsetu-server</module>
     </modules>
 
     <properties>
