@@ -70,7 +70,12 @@ public abstract class BloodComponent implements Identifiable, ExpiryTracked, Tra
 
     @Override
     public final LocalDate getExpiryDate() {
-        return expiryOverride != null ? expiryOverride : collectedOn.plusDays(getShelfLifeDays());
+        return expiryOverride != null ? expiryOverride : standardExpiryDate();
+    }
+
+    /** Expiry from the standard shelf life, ignoring any explicit override. */
+    public final LocalDate standardExpiryDate() {
+        return collectedOn.plusDays(getShelfLifeDays());
     }
 
     /** Units are the same unit if and only if they have the same ID. */

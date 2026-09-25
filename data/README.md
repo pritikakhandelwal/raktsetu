@@ -3,8 +3,9 @@
 All files are UTF-8 CSV with a header row. Blank lines and lines starting with `#` are ignored. A malformed row is
 reported with its file name and line number (`InvalidDataException`) and skipped; the other rows still load.
 
-Sample data will live in `data/sample/` and is generated with a fixed seed **relative to a chosen "today"**, so units
-never go stale before a demo.
+The app keeps its data in a folder (default `raktsetu-data/`, not committed to git). On first run it generates a sample
+network with a fixed seed **relative to "today"**, so units never go stale before a demo. The loader is implemented by
+`DataLoader` in `raktsetu-persistence`.
 
 ## facilities.csv
 
@@ -19,7 +20,7 @@ never go stale before a demo.
 
 | Column | Type | Example | Notes |
 |---|---|---|---|
-| `unit_id` | text | `W1234 26 000123` | Unique; ISBT 128-style donation number |
+| `unit_id` | text | `RS-000123` | Unique. Units created by the app use `RS-` plus a serial; imported units may use any ID, such as an ISBT 128 donation number |
 | `facility_id` | text | `HUB01` | Must be a facility that stores blood |
 | `component` | `WHOLE_BLOOD` / `RED_CELLS` / `PLATELETS` / `PLASMA` | `PLATELETS` | |
 | `blood_group` | `O-` ... `AB+` | `B+` | |
@@ -33,7 +34,7 @@ never go stale before a demo.
 | `from_id` | text | `HUB01` | |
 | `to_id` | text | `H02` | Rows are read as symmetric unless both directions are given |
 | `distance_km` | integer | `14` | |
-| `travel_minutes` | integer | `32` | Precomputed road travel time (OSRM on OpenStreetMap) |
+| `travel_minutes` | integer | `32` | Road travel time. Synthetic in the sample network; to be precomputed with OSRM on OpenStreetMap for the calibrated network |
 
 ## usage.csv
 
@@ -51,6 +52,7 @@ Daily issues per facility, used by the expiry-risk check.
 
 | File | Contents |
 |---|---|
-| `audit_log.csv` | Append-only, hash-chained record of every issue, transfer and discard |
-| `wastage.csv` | Every unit removed as expired, with facility and date |
+| `audit_log.csv` | Append-only, hash-chained record of every collection, issue, transfer and discard: `seq, date, type, facility_id, counterparty, component, blood_group, unit_ids` (`;`-separated), `note, prev_hash, hash` |
+| `wastage.csv` | Every unit removed as expired: `date, facility_id, unit_id, component, blood_group` |
+| `state.properties` | `next_unit_serial`, so IDs of issued units are never reused |
 | `reports/*.csv` | Exported stock, risk, redistribution and simulation reports |
