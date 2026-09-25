@@ -1,0 +1,24 @@
+# Build output
+target/
+*.class
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data and generated output (sample data under data/sample is committed)
+*.log
+output/
+reports/
+
+# jqwik test database
+.jqwik-database

@@ -1,0 +1,52 @@
+@startuml use-case
+' RaktSetu use-case diagram (v1, Phase 0)
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Blood centre staff" as Staff
+actor "Hospital staff" as Hosp
+actor "Network administrator" as Admin
+actor "Simulator" as Sim <<system>>
+
+rectangle RaktSetu {
+  usecase "View centre stock" as UC1
+  usecase "Add blood units" as UC3
+  usecase "Remove expired units" as UCX
+  usecase "Run expiry-risk check" as UC6
+  usecase "Raise emergency request" as UC4
+  usecase "Check compatibility" as UC5
+  usecase "View network-wide stock" as UC2
+  usecase "Generate redistribution plan" as UC7
+  usecase "Compare strategies" as UC8
+  usecase "Approve or reject transfers" as UC9
+  usecase "View and verify audit log" as UC10
+  usecase "Run simulation" as UC11
+  usecase "View wastage summary" as UC12
+  usecase "Export reports" as UC13
+  usecase "View data freshness" as UC14
+  usecase "Record in audit log" as AUD
+}
+
+Staff --> UC1
+Staff --> UC3
+Staff --> UCX
+Staff --> UC6
+Hosp --> UC4
+Hosp --> UC5
+Admin --> UC2
+Admin --> UC7
+Admin --> UC8
+Admin --> UC9
+Admin --> UC10
+Admin --> UC11
+Admin --> UC12
+Admin --> UC13
+Admin --> UC14
+Sim --> UC11
+
+UC4 ..> UC5 : <<include>>
+UC4 ..> AUD : <<include>>
+UC9 ..> AUD : <<include>>
+UCX ..> AUD : <<include>>
+UC8 ..> UC7 : <<include>>
+@enduml

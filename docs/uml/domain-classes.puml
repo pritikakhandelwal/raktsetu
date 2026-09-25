@@ -1,0 +1,121 @@
+@startuml domain-classes
+' RaktSetu domain class diagram (v1, Phase 0). Keep in sync with raktsetu-domain.
+skinparam classAttributeIconSize 0
+hide empty members
+
+package interfaces {
+  interface Identifiable {
+    +getId() : String
+  }
+  interface ExpiryTracked {
+    +getExpiryDate() : LocalDate
+    +daysToExpiry(today : LocalDate) : long
+    +isExpired(today : LocalDate) : boolean
+  }
+  interface Transfusable {
+    +compatibilityWith(recipient : BloodGroup) : CompatibilityResult
+    +canTransfuseTo(recipient : BloodGroup) : boolean
+  }
+  interface DistanceProvider {
+    +distanceKm(from : String, to : String) : int
+    +travelMinutes(from : String, to : String) : int
+  }
+}
+
+package model {
+  enum BloodGroup {
+    O_NEG, O_POS, A_NEG, A_POS, B_NEG, B_POS, AB_NEG, AB_POS
+    +canGiveRedCellsTo(r : BloodGroup) : boolean
+    +canGivePlasmaTo(r : BloodGroup) : boolean
+    +label() : String
+    +{static} parse(text : String) : BloodGroup
+  }
+  enum ComponentType {
+    WHOLE_BLOOD, RED_CELLS, PLATELETS, PLASMA
+    +newUnit(id, group, collectedOn) : BloodComponent
+  }
+  enum Compatibility {
+    IDENTICAL, COMPATIBLE, ALLOWED_WITH_WARNING, INCOMPATIBLE
+  }
+  class CompatibilityResult <<record>> {
+    +level : Compatibility
+    +reason : String
+  }
+
+  abstract class BloodComponent {
+    -unitId : String
+    -bloodGroup : BloodGroup
+    -collectedOn : LocalDate
+    -expiryOverride : LocalDate
+    #BloodComponent(id, group, collectedOn)
+    #BloodComponent(id, group, collectedOn, expiryOverride)
+    +{abstract} getType() : ComponentType
+    +{abstract} getShelfLifeDays() : int
+    +{abstract} getStorageCondition() : String
+    +getExpiryDate() : LocalDate
+  }
+  class WholeBlood
+  class RedCellConcentrate
+  class Platelets
+  class FreshFrozenPlasma
+
+  abstract class Facility {
+    -id : String
+    -name : String
+    -lastReportedOn : LocalDate
+    +{abstract} canCollect() : boolean
+    +{abstract} canStore() : boolean
+    +getInventory() : Inventory
+    +daysSinceReport(today) : long
+  }
+  class HubBloodCentre
+  class StorageCentre
+  class Hospital
+
+  class Inventory {
+    -stock : EnumMap<ComponentType, EnumMap<BloodGroup, PriorityQueue<BloodComponent>>>
+    +add(unit : BloodComponent)
+    +issue(type, group, qty, today) : List<BloodComponent>
+    +removeExpired(today) : List<BloodComponent>
+    +take(unitId) : Optional<BloodComponent>
+    +countUsable(type, group, today) : int
+  }
+}
+
+package exception {
+  class RaktSetuException
+  class InsufficientStockException
+  class IncompatibleBloodException
+  class UnitExpiredException
+  class FacilityNotFoundException
+  class InvalidDataException
+}
+
+Identifiable <|.. BloodComponent
+ExpiryTracked <|.. BloodComponent
+Transfusable <|.. BloodComponent
+Identifiable <|.. Facility
+
+BloodComponent <|-- WholeBlood
+BloodComponent <|-- RedCellConcentrate
+BloodComponent <|-- Platelets
+BloodComponent <|-- FreshFrozenPlasma
+
+Facility <|-- HubBloodCentre
+Facility <|-- StorageCentre
+Facility <|-- Hospital
+
+Facility *-- "1" Inventory : owns >
+Inventory o-- "0..*" BloodComponent : holds (FEFO) >
+BloodComponent --> "1" BloodGroup
+Transfusable ..> CompatibilityResult
+CompatibilityResult --> Compatibility
+ComponentType ..> BloodComponent : creates
+
+Exception <|-- RaktSetuException
+RaktSetuException <|-- InsufficientStockException
+RaktSetuException <|-- IncompatibleBloodException
+RaktSetuException <|-- UnitExpiredException
+RaktSetuException <|-- FacilityNotFoundException
+RaktSetuException <|-- InvalidDataException
+@enduml

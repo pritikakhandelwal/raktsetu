@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['21', '25']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - name: Build, test and measure coverage
+        run: ./mvnw -B -ntp verify
+      - name: Upload executable JAR
+        if: matrix.java == '21'
+        uses: actions/upload-artifact@v4
+        with:
+          name: raktsetu-jar
+          path: raktsetu-cli/target/raktsetu.jar
+      - name: Upload coverage reports
+        if: matrix.java == '21'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: '**/target/site/jacoco/'
