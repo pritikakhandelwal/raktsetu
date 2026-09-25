@@ -1,0 +1,38 @@
+@startuml sequence-emergency-request
+' Emergency request flow (console option 4), end of Phase 1.
+actor "Hospital staff" as Staff
+participant ConsoleApp
+participant RequestService
+participant BloodNetwork
+participant DonorPreference
+participant Inventory
+participant AuditLogger
+
+Staff -> ConsoleApp : hospital, component, group, quantity, urgency
+ConsoleApp -> RequestService : handle(request, today)
+RequestService -> BloodNetwork : facility(hospitalId)
+alt unknown hospital
+  BloodNetwork --> ConsoleApp : FacilityNotFoundException
+end
+RequestService -> BloodNetwork : removeExpired(today)
+BloodNetwork -> AuditLogger : record(DISCARDED ...)
+RequestService -> BloodNetwork : storingFacilities() + route(...)
+note right : keep centres within 90 min;\nsort by travel time,\nunverified data last
+RequestService -> DonorPreference : forRecipient(component, group)
+note right : identical first, then compatible;\nO- last for non-O- patients
+loop plan (emergency: nearest centre first)
+  RequestService -> Inventory : countUsable(component, group, today)
+end
+alt not enough compatible units
+  RequestService --> ConsoleApp : InsufficientStockException (lists where stock is)
+  ConsoleApp --> Staff : "Not enough ... (SC01: 1, HUB01: 1)"
+else enough
+  loop each planned take
+    RequestService -> Inventory : issue(component, group, n, today)
+    Inventory --> RequestService : units (FEFO)
+    RequestService -> AuditLogger : record(ISSUED, note)
+  end
+  RequestService --> ConsoleApp : RequestOutcome
+  ConsoleApp --> Staff : allocations, substitutions, "Request fulfilled"
+end
+@enduml

@@ -1,0 +1,84 @@
+@startuml engine-classes
+' RaktSetu engine class diagram (v1, end of Phase 1). Keep in sync with raktsetu-engine.
+skinparam classAttributeIconSize 0
+hide empty members
+
+class BloodNetwork {
+  +facility(id) : Facility
+  +storingFacilities() : List<Facility>
+  +route(from, to) : Optional<Route>
+  +addUnits(facilityId, type, group, collectedOn, qty, today) : List<BloodComponent>
+  +removeExpired(today) : List<WastageRecord>
+  +snapshot() : NetworkData
+}
+
+class RequestService {
+  -maxTravelMinutes : int
+  +handle(request, today) : RequestOutcome
+  +issueUnit(facilityId, unitId, hospitalId, recipient, today) : Allocation
+}
+class DonorPreference {
+  +{static} forRecipient(component, recipient) : List<BloodGroup>
+}
+class RequestOutcome <<record>>
+class Allocation <<record>>
+
+class ExpiryRiskAnalyzer {
+  -lookaheadDays : int
+  +analyze(network, today) : List<RiskItem>
+}
+class RiskItem <<record>> {
+  +reason() : String
+}
+enum Freshness {
+  FRESH, STALE, UNVERIFIED
+  +{static} of(facility, today) : Freshness
+}
+
+interface RedistributionStrategy {
+  +name() : String
+  +plan(network, risks, today) : List<TransferOrder>
+}
+abstract class AbstractRedistributionStrategy {
+  +plan(network, risks, today) : List<TransferOrder> {final}
+  #{abstract} order(candidates) : List<Candidate>
+  #{abstract} choose(options) : Destination
+}
+class NearestFirstStrategy
+class ExpiryFirstStrategy
+class RedistributionEngine {
+  +plan(strategyName, network, today) : List<TransferOrder>
+  +compare(network, today) : List<StrategyComparison>
+}
+class StrategyComparison <<record>>
+class TransferService {
+  +approve(order, today)
+  +reject(order)
+}
+class InMemoryAuditTrail
+
+RedistributionStrategy <|.. AbstractRedistributionStrategy
+AbstractRedistributionStrategy <|-- NearestFirstStrategy
+AbstractRedistributionStrategy <|-- ExpiryFirstStrategy
+RedistributionEngine o-- "1..*" RedistributionStrategy
+RedistributionEngine --> ExpiryRiskAnalyzer
+RedistributionEngine ..> StrategyComparison
+ExpiryRiskAnalyzer ..> RiskItem
+AbstractRedistributionStrategy ..> Freshness
+RequestService --> BloodNetwork
+RequestService ..> DonorPreference
+RequestService ..> RequestOutcome
+RequestOutcome *-- "1..*" Allocation
+RequestService ..> Freshness
+TransferService --> BloodNetwork
+
+note right of AbstractRedistributionStrategy
+  Template Method pattern: the shared algorithm
+  finds feasible destinations with spare demand;
+  subclasses only choose the order and the destination.
+end note
+note bottom of InMemoryAuditTrail
+  implements AuditTrail (domain);
+  used by the simulator and tests
+end note
+@enduml

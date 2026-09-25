@@ -1,6 +1,8 @@
 package com.raktsetu.engine.strategy;
 
 import com.raktsetu.domain.model.BloodComponent;
+import com.raktsetu.domain.model.BloodGroup;
+import com.raktsetu.domain.model.ComponentType;
 import com.raktsetu.domain.model.Facility;
 import com.raktsetu.domain.model.Route;
 import com.raktsetu.domain.model.TransferOrder;
@@ -40,7 +42,9 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
     protected record Destination(Facility facility, Route route, int spareDemand) {
     }
 
-    private record Group(Facility source, Facility destination, Route route) {
+    /** Units are grouped into one order per source, destination, component and blood group. */
+    private record Group(Facility source, Facility destination, Route route, ComponentType component,
+                         BloodGroup group) {
     }
 
     @Override
@@ -61,7 +65,7 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
             }
             Destination d = choose(options);
             sent.merge(key(d.facility(), c.unit()), 1, Integer::sum);
-            Group g = new Group(c.source(), d.facility(), d.route());
+            Group g = new Group(c.source(), d.facility(), d.route(), c.unit().getType(), c.unit().getBloodGroup());
             groups.computeIfAbsent(g, k -> new ArrayList<>()).add(c.unit());
             reasons.putIfAbsent(g, String.format(Locale.ROOT, "%s; %s can use about %d more before expiry",
                     c.risk().reason(), d.facility().getId(), d.spareDemand()));
