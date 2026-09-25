@@ -22,3 +22,6 @@ reports/
 
 # jqwik test database
 .jqwik-database
+
+# Local app data (generated on first run)
+raktsetu-data/

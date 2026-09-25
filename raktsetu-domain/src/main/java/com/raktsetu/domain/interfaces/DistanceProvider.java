@@ -1,16 +1,20 @@
 package com.raktsetu.domain.interfaces;
 
-import com.raktsetu.domain.exception.FacilityNotFoundException;
+import com.raktsetu.domain.model.Route;
+
+import java.util.Optional;
 
 /**
  * Travel between two facilities.
  *
- * <p>Today this is backed by a precomputed table (see {@code data/README.md}); a live routing service can be added
+ * <p>Today this is backed by a precomputed table ({@code TableDistanceProvider}); a live routing service can be added
  * later as another implementation without changing any caller.
  */
 public interface DistanceProvider {
 
-    int distanceKm(String fromFacilityId, String toFacilityId) throws FacilityNotFoundException;
-
-    int travelMinutes(String fromFacilityId, String toFacilityId) throws FacilityNotFoundException;
+    /**
+     * The road route between two facilities: {@link Route#ZERO} from a facility to itself, and empty if no route is
+     * known.
+     */
+    Optional<Route> route(String fromFacilityId, String toFacilityId);
 }

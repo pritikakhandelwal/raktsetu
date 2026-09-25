@@ -20,6 +20,16 @@ public enum ComponentType {
         };
     }
 
+    /** As {@link #newUnit(String, BloodGroup, LocalDate)}, with an explicit (usually shortened) expiry date. */
+    public BloodComponent newUnit(String unitId, BloodGroup group, LocalDate collectedOn, LocalDate expiresOn) {
+        return switch (this) {
+            case WHOLE_BLOOD -> new WholeBlood(unitId, group, collectedOn, expiresOn);
+            case RED_CELLS -> new RedCellConcentrate(unitId, group, collectedOn, expiresOn);
+            case PLATELETS -> new Platelets(unitId, group, collectedOn, expiresOn);
+            case PLASMA -> new FreshFrozenPlasma(unitId, group, collectedOn, expiresOn);
+        };
+    }
+
     /**
      * Parses names such as {@code RED_CELLS}, {@code red cells} or {@code platelets}.
      *
