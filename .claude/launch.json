@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "raktsetu-web",
+      "runtimeExecutable": "java",
+      "runtimeArgs": [
+        "-jar",
+        "raktsetu-server/target/raktsetu-server.jar",
+        "--raktsetu.data-dir=raktsetu-data-web",
+        "--raktsetu.today=2026-10-01",
+        "--server.port=8080"
+      ],
+      "port": 8080
+    }
+  ]
+}

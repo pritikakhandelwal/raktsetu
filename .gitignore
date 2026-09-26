@@ -25,3 +25,8 @@ reports/
 
 # Local app data (generated on first run)
 raktsetu-data/
+
+# Front end
+web/node_modules/
+web/dist/
+raktsetu-data-web/
