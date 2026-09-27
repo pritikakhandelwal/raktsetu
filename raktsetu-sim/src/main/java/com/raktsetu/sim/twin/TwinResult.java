@@ -13,7 +13,7 @@ import java.util.Locale;
  * @param compliance          reporting compliance used
  * @param replication         replication number
  * @param days                days measured
- * @param unitsCollected      units added to stock
+ * @param collected           units added to stock, by component, in {@link ComponentType} order
  * @param unitsIssued         units given to hospitals
  * @param expired             expired units by component, in {@link ComponentType} order
  * @param requests            patient requests raised
@@ -30,7 +30,7 @@ import java.util.Locale;
  * @param ruralUnitsRequested units requested by rural hospitals
  * @param ruralUnitsUnmet     of which unmet
  */
-public record TwinResult(String policy, double compliance, int replication, int days, int unitsCollected,
+public record TwinResult(String policy, double compliance, int replication, int days, List<Integer> collected,
                          int unitsIssued, List<Integer> expired, int requests, int requestsUnmet, int unitsRequested,
                          int unitsUnmet, int unitsSubstituted, int oNegativeToOthers, int transferUnitsPlanned,
                          int transferUnitsMoved, int transferKm, int urbanUnitsRequested, int urbanUnitsUnmet,
@@ -38,15 +38,30 @@ public record TwinResult(String policy, double compliance, int replication, int 
 
     public static final List<String> CSV_HEADER = List.of("policy", "compliance", "replication", "days",
             "units_collected", "units_issued", "units_expired", "expired_whole_blood", "expired_red_cells",
-            "expired_platelets", "expired_plasma", "outdate_rate", "requests", "requests_unmet", "units_requested",
+            "expired_platelets", "expired_plasma", "outdate_rate", "outdate_whole_blood", "outdate_red_cells",
+            "outdate_platelets", "outdate_plasma", "requests", "requests_unmet", "units_requested",
             "units_unmet", "fill_rate", "units_substituted", "o_negative_to_others", "transfer_units_planned",
             "transfer_units_moved", "transfer_km", "urban_fill_rate", "rural_fill_rate", "rural_urban_gap");
 
     public TwinResult {
         expired = List.copyOf(expired);
-        if (expired.size() != ComponentType.values().length) {
-            throw new IllegalArgumentException("Need one expiry count per component");
+        collected = List.copyOf(collected);
+        if (expired.size() != ComponentType.values().length || collected.size() != ComponentType.values().length) {
+            throw new IllegalArgumentException("Need one count per component");
         }
+    }
+
+    public int unitsCollected() {
+        return collected.stream().mapToInt(Integer::intValue).sum();
+    }
+
+    public int collected(ComponentType type) {
+        return collected.get(type.ordinal());
+    }
+
+    /** Share of collected units of one component that expired. */
+    public double outdateRate(ComponentType type) {
+        return ratio(expired(type), collected(type));
     }
 
     public int unitsExpired() {
@@ -59,7 +74,7 @@ public record TwinResult(String policy, double compliance, int replication, int 
 
     /** Share of collected units that expired: the main wastage measure. */
     public double outdateRate() {
-        return ratio(unitsExpired(), unitsCollected);
+        return ratio(unitsExpired(), unitsCollected());
     }
 
     /** Share of requested units that were supplied. */
@@ -87,10 +102,11 @@ public record TwinResult(String policy, double compliance, int replication, int 
     @Override
     public List<String> toCsvRow() {
         return List.of(policy, fmt(compliance), String.valueOf(replication), String.valueOf(days),
-                String.valueOf(unitsCollected), String.valueOf(unitsIssued), String.valueOf(unitsExpired()),
+                String.valueOf(unitsCollected()), String.valueOf(unitsIssued), String.valueOf(unitsExpired()),
                 String.valueOf(expired(ComponentType.WHOLE_BLOOD)), String.valueOf(expired(ComponentType.RED_CELLS)),
                 String.valueOf(expired(ComponentType.PLATELETS)), String.valueOf(expired(ComponentType.PLASMA)),
-                fmt(outdateRate()), String.valueOf(requests), String.valueOf(requestsUnmet),
+                fmt(outdateRate()), fmt(outdateRate(ComponentType.WHOLE_BLOOD)), fmt(outdateRate(ComponentType.RED_CELLS)),
+                fmt(outdateRate(ComponentType.PLATELETS)), fmt(outdateRate(ComponentType.PLASMA)), String.valueOf(requests), String.valueOf(requestsUnmet),
                 String.valueOf(unitsRequested), String.valueOf(unitsUnmet), fmt(fillRate()),
                 String.valueOf(unitsSubstituted), String.valueOf(oNegativeToOthers),
                 String.valueOf(transferUnitsPlanned), String.valueOf(transferUnitsMoved), String.valueOf(transferKm),

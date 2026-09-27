@@ -21,22 +21,38 @@ import java.util.Objects;
  * @param sites        facilities
  * @param routes       road routes (distance and travel time)
  * @param dailyDemand  units per day per unit of hospital demand weight, by component
- * @param supplyFactor total collections divided by total expected demand (1.10 = 10% more collected than used)
+ * @param supplyFactor per component: collections divided by expected demand (1.10 = 10% more collected than used)
  */
 public record NetworkSpec(String name, List<Site> sites, List<RouteEntry> routes,
-                          Map<ComponentType, Double> dailyDemand, double supplyFactor) {
+                          Map<ComponentType, Double> dailyDemand, Map<ComponentType, Double> supplyFactor) {
 
     public NetworkSpec {
         Objects.requireNonNull(name, "name");
         sites = List.copyOf(sites);
         routes = List.copyOf(routes);
         dailyDemand = Map.copyOf(new EnumMap<>(dailyDemand));
-        if (supplyFactor <= 0) {
-            throw new IllegalArgumentException("Supply factor must be positive");
+        supplyFactor = Map.copyOf(new EnumMap<>(supplyFactor));
+        for (ComponentType t : ComponentType.values()) {
+            if (supplyFactor.getOrDefault(t, 0.0) <= 0) {
+                throw new IllegalArgumentException("Supply factor for " + t + " must be positive");
+            }
         }
         if (sites.stream().noneMatch(Site::isHospital) || sites.stream().allMatch(Site::isHospital)) {
             throw new IllegalArgumentException("A network needs at least one hospital and one blood centre");
         }
+    }
+
+    /** The same supply factor for every component. */
+    public static Map<ComponentType, Double> uniformSupply(double factor) {
+        Map<ComponentType, Double> map = new EnumMap<>(ComponentType.class);
+        for (ComponentType t : ComponentType.values()) {
+            map.put(t, factor);
+        }
+        return map;
+    }
+
+    public double supplyFactor(ComponentType type) {
+        return supplyFactor.get(type);
     }
 
     public List<Site> centres() {

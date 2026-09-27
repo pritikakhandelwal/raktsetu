@@ -58,6 +58,15 @@ public final class CsvRow {
         }
     }
 
+    public double decimal(String column) throws InvalidDataException {
+        String value = text(column);
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            throw invalid("'" + column + "' must be a number, was '" + value + "'");
+        }
+    }
+
     public LocalDate date(String column) throws InvalidDataException {
         return parseDate(column, text(column));
     }

@@ -65,7 +65,7 @@ public final class Schedule {
             for (Site c : spec.centres()) {
                 double share = c.supplyWeight() / totalSupplyWeight;
                 for (ComponentType type : ComponentType.values()) {
-                    double perCentre = spec.totalDailyDemand(type) * spec.supplyFactor() * share;
+                    double perCentre = spec.totalDailyDemand(type) * spec.supplyFactor(type) * share;
                     for (BloodGroup g : BloodGroup.values()) {
                         int n = supply.poisson(perCentre * RandomSource.GROUP_SHARE.get(g));
                         if (n > 0) {
