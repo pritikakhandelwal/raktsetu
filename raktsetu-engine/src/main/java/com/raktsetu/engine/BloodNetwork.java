@@ -149,6 +149,55 @@ public final class BloodNetwork {
         return removed;
     }
 
+    /**
+     * Removes one specific unit from stock as wastage, for example because the bag is damaged, and records why.
+     *
+     * @throws FacilityNotFoundException if the facility does not exist
+     * @throws IllegalArgumentException  if the unit is not in stock there or no reason is given
+     */
+    public WastageRecord discardUnit(String facilityId, String unitId, String reason, LocalDate today)
+            throws FacilityNotFoundException {
+        Facility f = facility(facilityId);
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("A reason is required to discard a unit");
+        }
+        if (!f.canStore()) {
+            throw new IllegalArgumentException(f + " does not store blood");
+        }
+        BloodComponent unit = f.getInventory().take(unitId)
+                .orElseThrow(() -> new IllegalArgumentException("Unit " + unitId + " is not in stock at " + f));
+        WastageRecord record = WastageRecord.of(today, f.getId(), unit);
+        wastage.add(record);
+        audit.record(new AuditEvent(today, AuditEventType.DISCARDED, f.getId(), "", unit.getType(),
+                unit.getBloodGroup(), List.of(unit.getId()), reason.trim()));
+        return record;
+    }
+
+    /**
+     * Puts units back on a facility's shelf, for example when a request is cancelled before dispatch. Units that have
+     * expired meanwhile are removed at the next {@link #removeExpired} and counted as wastage there.
+     *
+     * @throws FacilityNotFoundException if the facility does not exist
+     * @throws IllegalArgumentException  if the facility does not store blood or a unit is already in stock there
+     */
+    public void returnUnits(String facilityId, List<BloodComponent> units, String note, LocalDate today)
+            throws FacilityNotFoundException {
+        Facility f = facility(facilityId);
+        if (!f.canStore()) {
+            throw new IllegalArgumentException(f + " does not store blood");
+        }
+        Map<String, List<BloodComponent>> byKind = new LinkedHashMap<>();
+        for (BloodComponent u : units) {
+            f.getInventory().add(u);
+            byKind.computeIfAbsent(u.getType() + "/" + u.getBloodGroup(), k -> new ArrayList<>()).add(u);
+        }
+        for (List<BloodComponent> group : byKind.values()) {
+            BloodComponent first = group.get(0);
+            audit.record(new AuditEvent(today, AuditEventType.RETURNED, f.getId(), "", first.getType(),
+                    first.getBloodGroup(), group.stream().map(BloodComponent::getId).toList(), note));
+        }
+    }
+
     /** The current state, for saving. */
     public NetworkData snapshot() {
         return new NetworkData(new ArrayList<>(facilities.values()), routes, usage, wastage, nextUnitSerial);

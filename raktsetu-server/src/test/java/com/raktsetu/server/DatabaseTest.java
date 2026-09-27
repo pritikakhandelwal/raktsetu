@@ -1,7 +1,6 @@
 package com.raktsetu.server;
 
 import com.raktsetu.server.ApiModels.AddUnitsInput;
-import com.raktsetu.server.ApiModels.BloodRequestInput;
 import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.db.AuditRepository;
 import com.raktsetu.server.db.NetworkRepository;
@@ -41,20 +40,21 @@ class DatabaseTest {
     @Autowired
     StateRepository state;
     @Autowired
+    com.raktsetu.server.db.TransferRepository transferRepo;
+    @Autowired
     TransactionTemplate tx;
     @Autowired
     JdbcClient jdbc;
 
     private NetworkService restart() throws Exception {
         return new NetworkService(new RaktSetuProperties(Path.of("unused"), LocalDate.of(2026, 10, 1), 42L, null),
-                networkRepo, auditRepo, state, tx);
+                networkRepo, auditRepo, state, transferRepo, tx);
     }
 
     @Test
     void aRestartedServiceSeesEverythingThatWasWritten() throws Exception {
         NetworkService service = restart();
         service.addUnits("SC01", new AddUnitsInput("PLATELETS", "AB-", null, 3));
-        service.request(new BloodRequestInput("H01", "RED_CELLS", "O+", 2, "EMERGENCY"));
         service.recordReport("SC03");
         Summary before = service.summary();
 

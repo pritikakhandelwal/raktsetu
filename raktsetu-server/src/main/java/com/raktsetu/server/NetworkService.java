@@ -4,19 +4,13 @@ import com.raktsetu.domain.exception.RaktSetuException;
 import com.raktsetu.domain.model.AuditEvent;
 import com.raktsetu.domain.model.BloodComponent;
 import com.raktsetu.domain.model.BloodGroup;
-import com.raktsetu.domain.model.BloodRequest;
 import com.raktsetu.domain.model.CompatibilityResult;
 import com.raktsetu.domain.model.ComponentType;
 import com.raktsetu.domain.model.Facility;
 import com.raktsetu.domain.model.NetworkData;
-import com.raktsetu.domain.model.TransferOrder;
-import com.raktsetu.domain.model.TransferStatus;
-import com.raktsetu.domain.model.Urgency;
 import com.raktsetu.domain.model.WastageRecord;
-import com.raktsetu.engine.Allocation;
 import com.raktsetu.engine.BloodNetwork;
 import com.raktsetu.engine.Freshness;
-import com.raktsetu.engine.RequestOutcome;
 import com.raktsetu.engine.RequestService;
 import com.raktsetu.engine.RiskItem;
 import com.raktsetu.engine.TransferService;
@@ -27,11 +21,10 @@ import com.raktsetu.server.ApiModels.AddUnitsInput;
 import com.raktsetu.server.db.AuditRepository;
 import com.raktsetu.server.db.NetworkRepository;
 import com.raktsetu.server.db.StateRepository;
+import com.raktsetu.server.db.TransferRepository;
 import com.raktsetu.server.ApiModels.AddedUnits;
-import com.raktsetu.server.ApiModels.AllocationView;
 import com.raktsetu.server.ApiModels.AuditEntry;
 import com.raktsetu.server.ApiModels.AuditView;
-import com.raktsetu.server.ApiModels.BloodRequestInput;
 import com.raktsetu.server.ApiModels.CompatibilityInput;
 import com.raktsetu.server.ApiModels.CompatibilityView;
 import com.raktsetu.server.ApiModels.ComparisonView;
@@ -39,14 +32,12 @@ import com.raktsetu.server.ApiModels.FacilityStock;
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.ApiModels.NetworkStock;
 import com.raktsetu.server.ApiModels.NetworkStockRow;
-import com.raktsetu.server.ApiModels.RequestResult;
 import com.raktsetu.server.ApiModels.RiskView;
 import com.raktsetu.server.ApiModels.SimulationRow;
 import com.raktsetu.server.ApiModels.SimulationView;
 import com.raktsetu.server.ApiModels.StockLine;
 import com.raktsetu.server.ApiModels.StrategyView;
 import com.raktsetu.server.ApiModels.Summary;
-import com.raktsetu.server.ApiModels.TransferView;
 import com.raktsetu.server.ApiModels.WastageView;
 import com.raktsetu.sim.SampleNetworkFactory;
 import com.raktsetu.sim.SimulationResult;
@@ -79,28 +70,36 @@ public class NetworkService {
 
     /** A command that changes the network. */
     @FunctionalInterface
-    private interface Command<T> {
+    interface Command<T> {
         T run() throws RaktSetuException;
+    }
+
+    /** Extra database writes that belong to the same transaction as a command, given the command's result. */
+    @FunctionalInterface
+    interface DbWrite<T> {
+        void write(T result);
     }
 
     private final NetworkRepository networkRepo;
     private final AuditRepository auditRepo;
     private final StateRepository state;
+    private final TransferRepository transferRepo;
     private final TransactionTemplate tx;
     private final CapturingAuditTrail capture = new CapturingAuditTrail();
     private final RedistributionEngine engine = RedistributionEngine.withDefaultStrategies();
     private final long seed;
-    private final Map<String, TransferOrder> plan = new LinkedHashMap<>();
     private BloodNetwork network;
     private RequestService requests;
     private TransferService transfers;
     private LocalDate today;
 
     public NetworkService(RaktSetuProperties properties, NetworkRepository networkRepo, AuditRepository auditRepo,
-                          StateRepository state, TransactionTemplate tx) throws RaktSetuException {
+                          StateRepository state, TransferRepository transferRepo, TransactionTemplate tx)
+            throws RaktSetuException {
         this.networkRepo = networkRepo;
         this.auditRepo = auditRepo;
         this.state = state;
+        this.transferRepo = transferRepo;
         this.tx = tx;
         this.seed = properties.seed();
         this.today = startDate(properties);
@@ -137,7 +136,7 @@ public class NetworkService {
         int atRisk = engine.risks(network, today).stream().mapToInt(r -> r.atRisk().size()).sum();
         int hospitals = network.facilities().size() - network.storingFacilities().size();
         return new Summary(today, network.storingFacilities().size(), hospitals, units, urgent, atRisk,
-                network.wastage().size(), pendingTransfers().size(), auditRepo.verify().intact());
+                network.wastage().size(), transferRepo.countProposed(), auditRepo.verify().intact());
     }
 
     public synchronized List<FacilityView> facilities() {
@@ -224,27 +223,6 @@ public class NetworkService {
         return view(f, atRiskByFacility());
     }
 
-    public synchronized RequestResult request(BloodRequestInput input) throws RaktSetuException {
-        require(input, "request body");
-        require(input.hospitalId(), "hospitalId");
-        ComponentType type = ComponentType.parse(input.component());
-        BloodGroup group = BloodGroup.parse(input.group());
-        int quantity = requirePositive(input.quantity(), "quantity", 50);
-        Urgency urgency = input.urgency() == null || input.urgency().isBlank()
-                ? Urgency.EMERGENCY : Urgency.parse(input.urgency());
-        BloodRequest request = new BloodRequest(input.hospitalId(), type, group, quantity, urgency);
-        RequestOutcome outcome = change(() -> requests.handle(request, today));
-        List<AllocationView> allocations = new ArrayList<>();
-        for (Allocation a : outcome.allocations()) {
-            allocations.add(new AllocationView(a.source().getId(), a.source().getName(), a.route().distanceKm(),
-                    a.route().travelMinutes(), a.donorGroup().label(),
-                    a.units().stream().map(BloodComponent::getId).toList(),
-                    a.units().stream().map(u -> u.daysToExpiry(today)).toList(), a.isSubstitute(),
-                    a.compatibility().reason()));
-        }
-        return new RequestResult(outcome.unitsIssued(), outcome.usedSubstitutes(), allocations);
-    }
-
     public synchronized CompatibilityView compatibility(CompatibilityInput input) {
         require(input, "request body");
         ComponentType type = ComponentType.parse(input.component());
@@ -275,37 +253,6 @@ public class NetworkService {
                     c.totalKm()));
         }
         return result;
-    }
-
-    /** Replaces the current plan with a new one from the named strategy. */
-    public synchronized List<TransferView> plan(String strategy) {
-        require(strategy, "strategy");
-        List<TransferOrder> orders = engine.plan(strategy, network, today);
-        plan.clear();
-        orders.forEach(o -> plan.put(o.getId(), o));
-        return transfers();
-    }
-
-    public synchronized List<TransferView> transfers() {
-        return plan.values().stream().map(NetworkService::view).toList();
-    }
-
-    public synchronized TransferView approve(String transferId) throws RaktSetuException {
-        TransferOrder order = order(transferId);
-        change(() -> {
-            transfers.approve(order, today);
-            return order;
-        });
-        return view(order);
-    }
-
-    public synchronized TransferView reject(String transferId) throws RaktSetuException {
-        TransferOrder order = order(transferId);
-        if (order.getStatus() != TransferStatus.PROPOSED) {
-            throw new RaktSetuException("Transfer " + transferId + " is already " + order.getStatus());
-        }
-        transfers.reject(order);
-        return view(order);
     }
 
     // ------------------------------------------------------------------ audit, simulation, date
@@ -345,7 +292,6 @@ public class NetworkService {
                     + today);
         }
         today = date;
-        plan.clear();
         change(() -> network.removeExpired(today));
         return summary();
     }
@@ -357,7 +303,12 @@ public class NetworkService {
      * written even when the command then fails (for example, expired units discarded before a request that could not
      * be met). If writing fails, the network is reloaded from the database and the error is rethrown.
      */
-    private <T> T change(Command<T> command) throws RaktSetuException {
+    <T> T change(Command<T> command) throws RaktSetuException {
+        return change(command, result -> { });
+    }
+
+    /** As {@link #change(Command)}, also running {@code after} in the same transaction if the command succeeded. */
+    <T> T change(Command<T> command, DbWrite<T> after) throws RaktSetuException {
         capture.clear();
         T result = null;
         RaktSetuException refused = null;
@@ -367,6 +318,8 @@ public class NetworkService {
             refused = e;
         }
         List<AuditEvent> events = capture.drain();
+        T resultFinal = result;
+        RaktSetuException refusedFinal = refused;
         try {
             tx.executeWithoutResult(s -> {
                 auditRepo.append(events);
@@ -374,6 +327,9 @@ public class NetworkService {
                 networkRepo.saveReportDates(network.facilities());
                 state.put(StateRepository.NEXT_UNIT_SERIAL, String.valueOf(network.snapshot().nextUnitSerial()));
                 state.put(StateRepository.TODAY, today.toString());
+                if (refusedFinal == null) {
+                    after.write(resultFinal);
+                }
             });
         } catch (RuntimeException e) {
             reload();
@@ -391,19 +347,32 @@ public class NetworkService {
         network = new BloodNetwork(networkRepo.load(serial), capture);
         requests = new RequestService(network);
         transfers = new TransferService(network);
-        plan.clear();
     }
 
-    private TransferOrder order(String id) throws RaktSetuException {
-        TransferOrder order = plan.get(id);
-        if (order == null) {
-            throw new RaktSetuException("No transfer with ID '" + id + "' in the current plan");
-        }
-        return order;
+    // ------------------------------------------------------------------ for WorkflowService (same lock: this object)
+
+    BloodNetwork network() {
+        return network;
     }
 
-    private List<TransferOrder> pendingTransfers() {
-        return plan.values().stream().filter(o -> o.getStatus() == TransferStatus.PROPOSED).toList();
+    LocalDate today() {
+        return today;
+    }
+
+    RequestService requests() {
+        return requests;
+    }
+
+    TransferService transfers() {
+        return transfers;
+    }
+
+    RedistributionEngine engine() {
+        return engine;
+    }
+
+    int urgentUnitsAt(Facility f) {
+        return urgentUnits(f);
     }
 
     private Map<String, Integer> atRiskByFacility() {
@@ -426,12 +395,6 @@ public class NetworkService {
         return new FacilityView(f.getId(), f.getName(), f.getFacilityType().name(), f.getLastReportedOn(),
                 days == Long.MAX_VALUE ? null : days, Freshness.of(f, today).name(),
                 f.canStore() ? f.getInventory().totalUnits() : 0, urgentUnits(f), atRisk.getOrDefault(f.getId(), 0));
-    }
-
-    private static TransferView view(TransferOrder o) {
-        return new TransferView(o.getId(), o.getSource().getId(), o.getDestination().getId(), o.describeUnits(),
-                o.unitCount(), o.getRoute().distanceKm(), o.getRoute().travelMinutes(), o.getStatus().name(),
-                o.getReason());
     }
 
     private static <T> T require(T value, String name) {

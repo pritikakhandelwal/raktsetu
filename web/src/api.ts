@@ -44,22 +44,46 @@ export interface FacilityStock {
   lines: StockLine[];
 }
 
-export interface Allocation {
+/** The units one centre supplies for a request. */
+export interface RequestPart {
   sourceId: string;
   sourceName: string;
   distanceKm: number;
   travelMinutes: number;
-  donorGroup: string;
+  donorGroups: string[];
   unitIds: string[];
   daysLeft: number[];
-  substitute: boolean;
-  reason: string;
+  dispatched: boolean;
 }
 
-export interface RequestResult {
-  unitsIssued: number;
-  usedSubstitutes: boolean;
-  allocations: Allocation[];
+export type RequestStatus = "ALLOCATED" | "DISPATCHED" | "RECEIVED" | "CANCELLED" | "UNMET";
+
+export interface BloodRequest {
+  id: number;
+  hospitalId: string;
+  component: Component;
+  group: string;
+  quantity: number;
+  urgency: "EMERGENCY" | "ROUTINE";
+  status: RequestStatus;
+  raisedOn: string;
+  raisedBy: string;
+  updatedOn: string;
+  note: string;
+  parts: RequestPart[];
+}
+
+export interface Notification {
+  id: number;
+  createdOn: string;
+  kind: string;
+  message: string;
+  read: boolean;
+}
+
+export interface NotificationList {
+  unread: number;
+  items: Notification[];
 }
 
 export interface Compatibility {
@@ -101,8 +125,11 @@ export interface Transfer {
   unitCount: number;
   distanceKm: number;
   travelMinutes: number;
-  status: "PROPOSED" | "COMPLETED" | "REJECTED";
+  status: "PROPOSED" | "APPROVED" | "RECEIVED" | "REJECTED" | "SUPERSEDED";
   reason: string;
+  plannedOn: string;
+  decidedBy: string | null;
+  receivedOn: string | null;
 }
 
 export interface AuditEntry {
@@ -204,7 +231,19 @@ export const api = {
   facilityStock: (id: string) => call<FacilityStock>(`/facilities/${encodeURIComponent(id)}/stock`),
   recordReport: (id: string) => post<Facility>(`/facilities/${encodeURIComponent(id)}/report`),
   request: (body: { hospitalId: string; component: Component; group: string; quantity: number; urgency: string }) =>
-    post<RequestResult>("/requests", body),
+    post<BloodRequest>("/requests", body),
+  requests: () => call<BloodRequest[]>("/requests"),
+  dispatch: (id: number) => post<BloodRequest>(`/requests/${id}/dispatch`),
+  receive: (id: number) => post<BloodRequest>(`/requests/${id}/receive`),
+  cancel: (id: number) => post<BloodRequest>(`/requests/${id}/cancel`),
+  receiveTransfer: (id: string) => post<Transfer>(`/transfers/${encodeURIComponent(id)}/receive`),
+  addUnits: (facilityId: string, body: { component: Component; group: string; quantity: number; collectedOn?: string }) =>
+    post<{ unitIds: string[]; expiresOn: string }>(`/facilities/${encodeURIComponent(facilityId)}/units`, body),
+  discard: (facilityId: string, unitId: string, reason: string) =>
+    post<void>(`/facilities/${encodeURIComponent(facilityId)}/units/${encodeURIComponent(unitId)}/discard`, { reason }),
+  notifications: () => call<NotificationList>("/notifications"),
+  markRead: (id: number) => post<void>(`/notifications/${id}/read`),
+  markAllRead: () => post<void>("/notifications/read-all"),
   compatibility: (body: { component: Component; donor: string; recipient: string }) =>
     post<Compatibility>("/compatibility", body),
   risks: () => call<Risk[]>("/risks"),
