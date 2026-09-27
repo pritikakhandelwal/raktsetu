@@ -4,8 +4,10 @@ import { SectionHead, useLoad, type SectionProps } from "../shared";
 
 const SHOWN = 8;
 
-export function RiskSection({ rev }: SectionProps) {
-  const { data: risks, error } = useLoad(api.risks, [rev]);
+/** At-risk stock, soonest first; for centre staff, only their own centre ({@code facilityId}). */
+export function RiskSection({ rev, facilityId }: SectionProps & { facilityId?: string }) {
+  const { data: all, error } = useLoad(api.risks, [rev]);
+  const risks = facilityId ? all?.filter((r) => r.facilityId === facilityId) : all;
   const total = risks?.reduce((n, r) => n + r.atRiskUnits, 0) ?? 0;
 
   return (
