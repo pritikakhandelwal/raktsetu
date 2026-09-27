@@ -10,6 +10,7 @@ import com.raktsetu.server.ApiModels.TransferView;
 import com.raktsetu.server.security.AppUser;
 import com.raktsetu.server.security.CurrentUsers;
 import com.raktsetu.server.security.Role;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +24,7 @@ import java.util.List;
 
 /** Requests, transfers, discards and notifications. Permission checks are explained per endpoint. */
 @RestController
+@Tag(name = "Requests and transfers", description = "Blood requests, transfer plans and notifications")
 @RequestMapping("/api")
 public class WorkflowController {
 

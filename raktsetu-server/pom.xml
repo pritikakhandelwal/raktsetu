@@ -15,6 +15,7 @@
 
     <properties>
         <spring-boot.version>4.1.1</spring-boot.version>
+        <springdoc.version>3.1.1</springdoc.version>
         <frontend.plugin.version>2.0.2</frontend.plugin.version>
         <node.version>v24.21.0</node.version>
         <!-- Set -DskipFrontend to build the Java side without Node, for quick local builds. -->
@@ -84,6 +85,21 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <!-- Monitoring: health checks and metrics under /actuator, in Prometheus format too. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!-- API documentation: OpenAPI description at /v3/api-docs and a browsable page at /api-docs. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

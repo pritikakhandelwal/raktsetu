@@ -1,0 +1,83 @@
+@startuml server-security-monitoring
+' RaktSetu server: sign-in protection and monitoring. Keep in sync with raktsetu-server.
+skinparam classAttributeIconSize 0
+hide empty members
+
+package security {
+  interface LoginAttemptPolicy {
+    +lockedFor(key, now) : Optional<Duration>
+    +recordFailure(key, now)
+    +reset(key)
+  }
+  class SlidingWindowAttemptPolicy {
+    -maxFailures : int
+    -window : Duration
+    -failures : Map<String, Deque<Instant>>
+    +trackedKeys() : int
+  }
+  class LoginGuard {
+    -perUser : LoginAttemptPolicy
+    -perAddress : LoginAttemptPolicy
+    -clock : Clock
+    +check(username, address)
+    +failed(username, address)
+    +succeeded(username)
+    +clear(username)
+  }
+  class TooManyAttemptsException {
+    -retryAfter : Duration
+    +retryAfter() : Duration
+  }
+  class AuthController {
+    +login(input, request, response)
+    +me(auth)
+  }
+  class AccountService {
+    +setup(input)
+    +create(input)
+    +resetPassword(username)
+    +changePassword(username, input)
+  }
+  class PasswordChangeFilter
+  class CsrfCookieFilter
+}
+
+package monitoring {
+  interface HealthIndicator <<Spring>> {
+    +health() : Health
+  }
+  interface MeterBinder <<Micrometer>> {
+    +bindTo(registry)
+  }
+  class AuditChainHealthIndicator {
+    -last : Verification
+    -checkedAt : Instant
+  }
+  class NetworkMetrics {
+    -snapshot : Snapshot
+    +refresh()
+  }
+  class Snapshot <<record>>
+}
+
+class ApiErrors <<RestControllerAdvice>>
+class NetworkService
+class AuditRepository {
+  +verify() : Verification
+}
+class RuntimeException
+
+LoginAttemptPolicy <|.. SlidingWindowAttemptPolicy
+LoginGuard o-- "2" LoginAttemptPolicy
+LoginGuard ..> TooManyAttemptsException : throws
+RuntimeException <|-- TooManyAttemptsException
+AuthController --> LoginGuard
+AccountService --> LoginGuard : clears lock on reset
+ApiErrors ..> TooManyAttemptsException : 429 + Retry-After
+
+HealthIndicator <|.. AuditChainHealthIndicator
+MeterBinder <|.. NetworkMetrics
+AuditChainHealthIndicator --> AuditRepository
+NetworkMetrics --> NetworkService
+NetworkMetrics *-- Snapshot
+@enduml

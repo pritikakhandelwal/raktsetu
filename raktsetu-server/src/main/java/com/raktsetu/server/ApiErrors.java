@@ -3,6 +3,8 @@ package com.raktsetu.server;
 import com.raktsetu.domain.exception.FacilityNotFoundException;
 import com.raktsetu.domain.exception.RaktSetuException;
 import com.raktsetu.server.ApiModels.ApiError;
+import com.raktsetu.server.security.TooManyAttemptsException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -12,7 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * Turns expected problems into JSON errors with a message staff can read: unknown facility is 404, bad input is 400,
- * not allowed for this account is 403, and a refused operation (not enough stock, unsafe unit, changed stock) is 409.
+ * not allowed for this account is 403, too many failed sign-ins is 429, and a refused operation (not enough stock, unsafe unit, changed stock) is 409.
  */
 @RestControllerAdvice
 public class ApiErrors {
@@ -25,6 +27,13 @@ public class ApiErrors {
     @ExceptionHandler(RaktSetuException.class)
     public ResponseEntity<ApiError> refused(RaktSetuException e) {
         return error(HttpStatus.CONFLICT, e);
+    }
+
+    @ExceptionHandler(TooManyAttemptsException.class)
+    public ResponseEntity<ApiError> tooMany(TooManyAttemptsException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(Math.max(1, e.retryAfter().toSeconds())))
+                .body(new ApiError("TooManyAttempts", e.getMessage()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

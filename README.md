@@ -98,6 +98,19 @@ Options: `--raktsetu.data-dir=...` chooses where the embedded database lives; `-
 turns off online route lookups; `--server.port=...` changes the port. Back up the data folder; deleting it starts
 afresh with the setup page.
 
+**Monitoring and API docs:**
+
+- `/actuator/health` is public and reports DOWN if the audit log has been tampered with. Administrators also see
+  the details.
+- `/actuator/metrics` and `/actuator/prometheus` (administrators only) publish the network's state, for example
+  `raktsetu.units.at_risk`, `raktsetu.facilities.unverified` and `raktsetu.logins.failed`, for Grafana or similar.
+- `/api-docs` is a browsable OpenAPI description of every endpoint (`/v3/api-docs` gives the JSON).
+- Five wrong passwords in 15 minutes lock that account for up to 15 minutes; twenty from one address lock that
+  address. An administrator's password reset clears the lock. For JSON logs, add
+  `--logging.structured.format.console=ecs`.
+
+The OOP concepts in the code, class by class, are in [docs/oop-concepts.md](docs/oop-concepts.md).
+
 For front-end development with hot reload, run the server and then `npm run dev` in `web/`
 (http://localhost:5173 forwards `/api` to the server). `./mvnw verify -DskipFrontend` builds only the Java side.
 
@@ -123,7 +136,7 @@ only change their password until they do; changes need the `X-XSRF-TOKEN` header
 | `GET/POST /api/users`; `POST /api/users/{u}/reset-password`, `/enabled` | Admin | Accounts |
 
 Errors come back as `{"error": ..., "message": ...}`: 400 bad input, 401 not signed in, 403 not allowed for this
-account, 404 unknown facility, 409 refused (for example not enough stock).
+account, 404 unknown facility, 409 refused (for example not enough stock), 429 too many failed sign-ins.
 
 ## Demo in five minutes
 
