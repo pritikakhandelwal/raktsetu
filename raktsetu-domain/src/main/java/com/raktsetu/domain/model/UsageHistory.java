@@ -71,6 +71,22 @@ public final class UsageHistory {
         return averageDaily(facilityId, component, group, today, DEFAULT_WINDOW_DAYS);
     }
 
+    /**
+     * One facility's recorded days in {@code [from, toExclusive)}, sorted by date, component and group. Used to pass on
+     * only what a facility has reported so far.
+     */
+    public List<Entry> entriesFor(String facilityId, LocalDate from, LocalDate toExclusive) {
+        List<Entry> list = new ArrayList<>();
+        daily.forEach((k, days) -> {
+            if (k.facilityId().equals(facilityId)) {
+                days.subMap(from, true, toExclusive, false).forEach(
+                        (date, units) -> list.add(new Entry(date, k.facilityId(), k.component(), k.group(), units)));
+            }
+        });
+        list.sort(Comparator.comparing(Entry::date).thenComparing(Entry::component).thenComparing(Entry::group));
+        return list;
+    }
+
     /** Every recorded day, sorted by date, facility, component and group, for saving. */
     public List<Entry> entries() {
         List<Entry> list = new ArrayList<>();
