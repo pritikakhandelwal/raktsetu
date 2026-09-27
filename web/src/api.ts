@@ -28,6 +28,19 @@ export interface Facility {
   units: number;
   urgentUnits: number;
   atRiskUnits: number;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+}
+
+export type FacilityType = Facility["type"];
+
+export interface RouteInfo {
+  toId: string;
+  toName: string;
+  distanceKm: number;
+  travelMinutes: number;
+  source: "OSRM" | "ESTIMATE" | "MANUAL";
 }
 
 export interface StockLine {
@@ -158,28 +171,12 @@ export interface AuditView {
   entries: AuditEntry[];
 }
 
-export interface SimulationRow {
-  policy: string;
-  unitsExpired: number;
-  expiredByComponent: Record<Component, number>;
-  requestsFulfilled: number;
-  requestsUnmet: number;
-  unitsTransferred: number;
-  wastageReductionPercent: number;
-}
-
-export interface SimulationView {
-  days: number;
-  seed: number;
-  start: string;
-  results: SimulationRow[];
-}
-
 /** An error returned by the API, with a message written for staff. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code = "",
   ) {
     super(message);
   }
@@ -192,6 +189,22 @@ export interface User {
   displayName: string;
   role: Role;
   facilityId: string | null;
+  mustChangePassword: boolean;
+}
+
+export interface Account {
+  username: string;
+  displayName: string;
+  role: Role;
+  facilityId: string | null;
+  enabled: boolean;
+  mustChangePassword: boolean;
+  createdOn: string | null;
+}
+
+export interface NewAccount {
+  user: Account;
+  oneTimePassword: string;
 }
 
 /** The CSRF token Spring Security puts in the XSRF-TOKEN cookie; it must be echoed on every change. */
@@ -217,13 +230,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let code = "";
     try {
-      const body = (await response.json()) as { message?: string };
+      const body = (await response.json()) as { message?: string; error?: string };
       if (body.message) message = body.message;
+      if (body.error) code = body.error;
     } catch {
       // keep the generic message
     }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, code);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -231,6 +246,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 const post = <T>(path: string, body?: unknown) =>
   call<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+
+export interface FacilityInput {
+  name: string;
+  type: FacilityType;
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
 
 export const api = {
   me: () => call<User>("/auth/me"),
@@ -248,7 +271,10 @@ export const api = {
   receive: (id: number) => post<BloodRequest>(`/requests/${id}/receive`),
   cancel: (id: number) => post<BloodRequest>(`/requests/${id}/cancel`),
   receiveTransfer: (id: string) => post<Transfer>(`/transfers/${encodeURIComponent(id)}/receive`),
-  addUnits: (facilityId: string, body: { component: Component; group: string; quantity: number; collectedOn?: string }) =>
+  addUnits: (
+    facilityId: string,
+    body: { component: Component; group: string; quantity: number; collectedOn?: string; unitId?: string },
+  ) =>
     post<{ unitIds: string[]; expiresOn: string }>(`/facilities/${encodeURIComponent(facilityId)}/units`, body),
   discard: (facilityId: string, unitId: string, reason: string) =>
     post<void>(`/facilities/${encodeURIComponent(facilityId)}/units/${encodeURIComponent(unitId)}/discard`, { reason }),
@@ -265,6 +291,23 @@ export const api = {
   approve: (id: string) => post<Transfer>(`/transfers/${encodeURIComponent(id)}/approve`),
   reject: (id: string) => post<Transfer>(`/transfers/${encodeURIComponent(id)}/reject`),
   audit: (limit = 9) => call<AuditView>(`/audit?limit=${limit}`),
-  simulate: (days: number) => post<SimulationView>("/simulations", { days }),
-  advanceDate: (today: string) => post<Summary>("/date", { today }),
+  setupStatus: () => call<{ needsSetup: boolean }>("/setup"),
+  setup: (body: { username: string; displayName: string; password: string }) => post<Account>("/setup", body),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    post<void>("/auth/password", { currentPassword, newPassword }),
+  users: () => call<Account[]>("/users"),
+  createUser: (body: { username: string; displayName: string; role: Role; facilityId?: string }) =>
+    post<NewAccount>("/users", body),
+  resetPassword: (username: string) => post<NewAccount>(`/users/${encodeURIComponent(username)}/reset-password`),
+  setEnabled: (username: string, enabled: boolean) =>
+    post<Account>(`/users/${encodeURIComponent(username)}/enabled`, { enabled }),
+  addFacility: (body: FacilityInput) => post<Facility>("/facilities", body),
+  updateFacility: (id: string, body: FacilityInput) =>
+    call<Facility>(`/facilities/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  routes: (id: string) => call<RouteInfo[]>(`/facilities/${encodeURIComponent(id)}/routes`),
+  setRoute: (from: string, to: string, distanceKm: number, travelMinutes: number) =>
+    call<RouteInfo>(`/routes/${encodeURIComponent(from)}/${encodeURIComponent(to)}`, {
+      method: "PUT",
+      body: JSON.stringify({ distanceKm, travelMinutes }),
+    }),
 };

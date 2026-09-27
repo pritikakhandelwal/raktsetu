@@ -27,7 +27,7 @@ export function Hero({ summary }: { summary: Summary }) {
             out of date.
           </p>
           <div className="actions">
-            <a className="btn" href="#request">
+            <a className="btn" href="#/requests">
               Raise a request
             </a>
             <a className="btn ghost" href="#risk">

@@ -4,9 +4,14 @@ import { RequestBoard } from "../components/RequestBoard";
 import { RequestSection } from "../sections/RequestSection";
 import { SectionHead, useLoad, type SectionProps } from "../shared";
 
-/** What hospital staff see: request blood for their hospital and follow each request until it arrives. */
-export function HospitalView(props: SectionProps & { user: User }) {
-  const { user, rev } = props;
+export type HospitalPage = "home" | "requests" | "availability";
+
+/**
+ * What hospital staff see. Home: request blood. Requests: follow each request until it arrives. Availability: what
+ * the network holds today.
+ */
+export function HospitalView(props: SectionProps & { user: User; page: HospitalPage }) {
+  const { user, rev, page } = props;
   const hospital = user.facilityId!;
   const { data: facilities } = useLoad(api.facilities, [rev]);
   const { data: requests } = useLoad(api.requests, [rev]);
@@ -17,6 +22,7 @@ export function HospitalView(props: SectionProps & { user: User }) {
 
   return (
     <>
+      {page === "home" && (
       <section id="top" className="section hero role-hero" aria-labelledby="hospital-title">
         <div className="glow" style={{ width: 360, height: 360, left: "-120px", top: "60px" }} />
         <div className="wrap hero-grid">
@@ -34,7 +40,7 @@ export function HospitalView(props: SectionProps & { user: User }) {
               <a className="btn" href="#request">
                 Request blood
               </a>
-              <a className="btn ghost" href="#my-requests">
+              <a className="btn ghost" href="#/requests">
                 My requests
               </a>
             </div>
@@ -51,10 +57,12 @@ export function HospitalView(props: SectionProps & { user: User }) {
           </div>
         </div>
       </section>
+      )}
 
-      <RequestSection {...props} fixedHospital={hospital} />
+      {page === "home" && <RequestSection {...props} fixedHospital={hospital} />}
 
-      <section id="my-requests" className="section cream on-light" aria-labelledby="mine-title">
+      {page === "requests" && (
+      <section id="my-requests" className="section cream on-light page" aria-labelledby="mine-title">
         <div className="wrap">
           <SectionHead
             id="mine-title"
@@ -65,9 +73,10 @@ export function HospitalView(props: SectionProps & { user: User }) {
           <RequestBoard {...props} />
         </div>
       </section>
+      )}
 
-      {stock && (
-        <section id="availability" className="section" aria-labelledby="availability-title">
+      {page === "availability" && stock && (
+        <section id="availability" className="section page" aria-labelledby="availability-title">
           <div className="wrap">
             <SectionHead
               id="availability-title"

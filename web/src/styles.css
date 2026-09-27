@@ -1593,3 +1593,165 @@ tr.urgent td {
 .bell-empty {
   padding: 16px;
 }
+
+/* ---------- Pages of the real site ---------- */
+
+.nav-links a.active {
+  color: var(--white);
+  box-shadow: 0 2px 0 var(--red);
+}
+
+a.who {
+  text-decoration: none;
+}
+
+a.who:hover,
+a.who.active {
+  color: var(--white);
+}
+
+.page {
+  min-height: 60vh;
+}
+
+.page-wrap > .section:first-child {
+  min-height: 40vh;
+}
+
+.checklist {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+  border: 2px solid var(--line-light);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+
+.checklist li.done {
+  opacity: 0.6;
+}
+
+.checklist li.next {
+  border-color: var(--red);
+  box-shadow: 0 0 24px -8px var(--red);
+}
+
+.checklist p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted-light);
+}
+
+.checklist .check {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--black);
+  color: var(--white);
+  font-weight: 700;
+}
+
+.checklist li.done .check {
+  background: var(--red);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 20px;
+  margin: 0 0 16px;
+}
+
+.details dt,
+.one-time dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-dark);
+}
+
+.details dd,
+.one-time dd {
+  margin: 0;
+}
+
+.map {
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 2px solid var(--line-light);
+  z-index: 0;
+}
+
+.facility-form {
+  margin-top: 24px;
+}
+
+.facility-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.cell-input {
+  width: 90px;
+  padding: 6px 8px;
+}
+
+.one-time {
+  margin: 24px 0;
+  border: 2px solid var(--red);
+}
+
+.one-time dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 20px;
+  margin: 0 0 16px;
+}
+
+.one-time code {
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  color: var(--red);
+  user-select: all;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+tr.muted-row td {
+  opacity: 0.5;
+}
+
+@media (max-width: 960px) {
+  .facility-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .checklist li {
+    grid-template-columns: auto 1fr;
+  }
+
+  .checklist li .btn {
+    grid-column: 1 / -1;
+  }
+}
