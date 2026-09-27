@@ -147,8 +147,8 @@ class ApiTest {
         postJson("/api/requests",
                 "{\"hospitalId\":\"H01\",\"component\":\"RED_CELLS\",\"group\":\"O+\",\"quantity\":2,\"urgency\":\"EMERGENCY\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.unitsIssued").value(2))
-                .andExpect(jsonPath("$.allocations[0].unitIds[0]", startsWith("RS-")));
+                .andExpect(jsonPath("$.status").value("ALLOCATED"))
+                .andExpect(jsonPath("$.parts[0].unitIds[0]", startsWith("RS-")));
         mvc.perform(get("/api/audit?limit=5"))
                 .andExpect(jsonPath("$.intact").value(true))
                 .andExpect(jsonPath("$.entries[0].type").value("ISSUED"));
@@ -162,11 +162,12 @@ class ApiTest {
                 .andExpect(jsonPath("$.length()", greaterThan(1)));
         mvc.perform(post("/api/transfers/T20261001-01/approve"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("COMPLETED"));
+                .andExpect(jsonPath("$.status").value("APPROVED"));
         mvc.perform(post("/api/transfers/T20261001-02/reject"))
                 .andExpect(jsonPath("$.status").value("REJECTED"));
         mvc.perform(post("/api/transfers/T20261001-02/reject")).andExpect(status().isConflict());
-        mvc.perform(get("/api/transfers")).andExpect(jsonPath("$[0].status").value("COMPLETED"));
+        mvc.perform(get("/api/transfers")).andExpect(jsonPath("$[*].status", org.hamcrest.Matchers.hasItems("APPROVED",
+                "REJECTED")));
     }
 
     @Test
@@ -198,7 +199,7 @@ class ApiTest {
         postJson("/api/date", "{\"today\":\"2026-10-03\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.today").value("2026-10-03"));
-        mvc.perform(get("/api/transfers")).andExpect(jsonPath("$", hasSize(0)));
+        mvc.perform(get("/api/summary")).andExpect(jsonPath("$.today").value("2026-10-03"));
     }
 
     @Autowired

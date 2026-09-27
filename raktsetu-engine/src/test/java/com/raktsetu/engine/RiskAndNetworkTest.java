@@ -97,6 +97,37 @@ class RiskAndNetworkTest {
     }
 
     @Test
+    void aDamagedUnitCanBeDiscardedWithAReason() throws Exception {
+        BloodComponent unit = t.add(t.sc01, PLATELETS, B_POS, 1, 1).get(0);
+
+        t.network.discardUnit("SC01", unit.getId(), "bag leaking", TODAY);
+
+        assertThat(t.sc01.getInventory().totalUnits()).isZero();
+        assertThat(t.network.wastage()).singleElement().satisfies(w -> assertThat(w.unitId()).isEqualTo(unit.getId()));
+        assertThat(t.audit.events()).singleElement().satisfies(e -> {
+            assertThat(e.type()).isEqualTo(AuditEventType.DISCARDED);
+            assertThat(e.note()).isEqualTo("bag leaking");
+        });
+        assertThatThrownBy(() -> t.network.discardUnit("SC01", unit.getId(), "again", TODAY))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> t.network.discardUnit("SC01", "X", " ", TODAY))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void returnedUnitsGoBackOnTheShelf() throws Exception {
+        BloodComponent unit = t.add(t.sc01, PLATELETS, B_POS, 1, 1).get(0);
+        t.sc01.getInventory().take(unit.getId());
+
+        t.network.returnUnits("SC01", List.of(unit), "request cancelled", TODAY);
+
+        assertThat(t.sc01.getInventory().find(unit.getId())).isPresent();
+        assertThat(t.audit.events()).singleElement().extracting(e -> e.type()).isEqualTo(AuditEventType.RETURNED);
+        assertThatThrownBy(() -> t.network.returnUnits("H01", List.of(unit), "x", TODAY))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void cannotAddUnitsToAHospitalOrFromTheFuture() {
         assertThatThrownBy(() -> t.network.addUnits("H01", PLATELETS, B_POS, TODAY, 1, TODAY))
                 .isInstanceOf(IllegalArgumentException.class);

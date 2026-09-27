@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { api, COMPONENTS, GROUPS, type Compatibility, type Component, type RequestResult } from "../api";
+import { api, COMPONENTS, GROUPS, type BloodRequest, type Compatibility, type Component } from "../api";
 import { componentLabel, daysLeft, plural } from "../format";
 import { SectionHead, errorText, useLoad, type SectionProps } from "../shared";
 
@@ -13,7 +13,7 @@ export function RequestSection({ rev, changed, notify }: SectionProps) {
   const [quantity, setQuantity] = useState(2);
   const [urgency, setUrgency] = useState("EMERGENCY");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<RequestResult>();
+  const [result, setResult] = useState<BloodRequest>();
   const [error, setError] = useState("");
 
   async function submit(e: FormEvent) {
@@ -24,7 +24,7 @@ export function RequestSection({ rev, changed, notify }: SectionProps) {
     try {
       const r = await api.request({ hospitalId, component, group, quantity, urgency });
       setResult(r);
-      notify(`Request met: ${plural(r.unitsIssued, "unit")} issued and recorded in the audit log.`, true);
+      notify(`Request #${r.id}: ${plural(r.quantity, "unit")} reserved; the supplying centre has been told.`, true);
       changed();
     } catch (err) {
       setError(errorText(err));
@@ -120,21 +120,21 @@ export function RequestSection({ rev, changed, notify }: SectionProps) {
             )}
             {result && (
               <div className="result" aria-live="polite">
-                {result.allocations.map((a) => (
-                  <div className="alloc" key={`${a.sourceId}-${a.donorGroup}`}>
-                    <span className="count">{a.unitIds.length}</span>
+                {result.parts.map((p) => (
+                  <div className="alloc" key={p.sourceId}>
+                    <span className="count">{p.unitIds.length}</span>
                     <strong>
-                      {a.donorGroup} from {a.sourceId}{" "}
+                      {p.donorGroups.join(", ")} from {p.sourceId}{" "}
                       <small>
-                        · {a.distanceKm} km · {a.travelMinutes} min
+                        · {p.distanceKm} km · {p.travelMinutes} min
                       </small>
                     </strong>
                     <small>
-                      {a.unitIds.join(", ")} · {a.daysLeft.map((d) => daysLeft(d)).join(", ")}
+                      {p.unitIds.join(", ")} · {p.daysLeft.map((d) => daysLeft(d)).join(", ")}
                     </small>
-                    {a.substitute && <span className="sub">Substitute: {a.reason}</span>}
                   </div>
                 ))}
+                {result.note && <p className="sub">{result.note}</p>}
               </div>
             )}
           </form>
