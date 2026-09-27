@@ -5,5 +5,7 @@ public enum AuditEventType {
     COLLECTED,
     ISSUED,
     TRANSFERRED,
-    DISCARDED
+    DISCARDED,
+    /** Put back on the shelf, for example when a request is cancelled before dispatch. */
+    RETURNED
 }

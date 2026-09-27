@@ -1,13 +1,14 @@
 package com.raktsetu.server;
 
 import com.raktsetu.domain.exception.RaktSetuException;
+import com.raktsetu.domain.model.AuditEvent;
 import com.raktsetu.domain.model.BloodComponent;
 import com.raktsetu.domain.model.BloodGroup;
 import com.raktsetu.domain.model.BloodRequest;
 import com.raktsetu.domain.model.CompatibilityResult;
 import com.raktsetu.domain.model.ComponentType;
 import com.raktsetu.domain.model.Facility;
-import com.raktsetu.domain.model.LoadResult;
+import com.raktsetu.domain.model.NetworkData;
 import com.raktsetu.domain.model.TransferOrder;
 import com.raktsetu.domain.model.TransferStatus;
 import com.raktsetu.domain.model.Urgency;
@@ -21,10 +22,11 @@ import com.raktsetu.engine.RiskItem;
 import com.raktsetu.engine.TransferService;
 import com.raktsetu.engine.strategy.RedistributionEngine;
 import com.raktsetu.engine.strategy.StrategyComparison;
-import com.raktsetu.persistence.AuditLogger;
 import com.raktsetu.persistence.AuditRecord;
-import com.raktsetu.persistence.DataLoader;
 import com.raktsetu.server.ApiModels.AddUnitsInput;
+import com.raktsetu.server.db.AuditRepository;
+import com.raktsetu.server.db.NetworkRepository;
+import com.raktsetu.server.db.StateRepository;
 import com.raktsetu.server.ApiModels.AddedUnits;
 import com.raktsetu.server.ApiModels.AllocationView;
 import com.raktsetu.server.ApiModels.AuditEntry;
@@ -50,6 +52,7 @@ import com.raktsetu.sim.SampleNetworkFactory;
 import com.raktsetu.sim.SimulationResult;
 import com.raktsetu.sim.Simulator;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -61,41 +64,65 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * The web application's view of one blood network. It holds the network in memory, saves it after every change, and
- * turns engine results into API models. Methods are synchronized because one network is shared by all requests; the
- * roadmap's Phase 5 replaces this with an event store and reservations.
+ * The web application's view of one blood network.
+ *
+ * <p>The engine works on an in-memory network; the database is the source of truth. Every command runs through
+ * {@link #change}: the command's audit events are appended to the hash-chained audit log and applied to the tables in
+ * one transaction. If writing fails, the in-memory network is reloaded from the database, so the two never drift
+ * apart. Methods are synchronized because one network is shared by all users of this server.
  */
 @Service
 public class NetworkService {
 
-    static final String AUDIT_FILE = "audit_log.csv";
     private static final int URGENT_DAYS = 2;
     private static final int MAX_SIMULATION_DAYS = 365;
 
-    private final DataLoader loader;
-    private final AuditLogger auditLog;
-    private final BloodNetwork network;
-    private final RequestService requests;
-    private final TransferService transfers;
+    /** A command that changes the network. */
+    @FunctionalInterface
+    private interface Command<T> {
+        T run() throws RaktSetuException;
+    }
+
+    private final NetworkRepository networkRepo;
+    private final AuditRepository auditRepo;
+    private final StateRepository state;
+    private final TransactionTemplate tx;
+    private final CapturingAuditTrail capture = new CapturingAuditTrail();
     private final RedistributionEngine engine = RedistributionEngine.withDefaultStrategies();
     private final long seed;
     private final Map<String, TransferOrder> plan = new LinkedHashMap<>();
+    private BloodNetwork network;
+    private RequestService requests;
+    private TransferService transfers;
     private LocalDate today;
 
-    public NetworkService(RaktSetuProperties properties) throws RaktSetuException {
-        this.today = properties.startDate();
+    public NetworkService(RaktSetuProperties properties, NetworkRepository networkRepo, AuditRepository auditRepo,
+                          StateRepository state, TransactionTemplate tx) throws RaktSetuException {
+        this.networkRepo = networkRepo;
+        this.auditRepo = auditRepo;
+        this.state = state;
+        this.tx = tx;
         this.seed = properties.seed();
-        this.loader = new DataLoader(properties.dataDir());
-        if (!loader.hasData()) {
-            loader.save(SampleNetworkFactory.create(today, seed));
+        this.today = startDate(properties);
+        if (networkRepo.isEmpty()) {
+            NetworkData sample = SampleNetworkFactory.create(today, seed);
+            tx.executeWithoutResult(s -> {
+                networkRepo.seed(sample);
+                state.put(StateRepository.NEXT_UNIT_SERIAL, String.valueOf(sample.nextUnitSerial()));
+            });
         }
-        LoadResult loaded = loader.load();
-        this.auditLog = new AuditLogger(properties.dataDir().resolve(AUDIT_FILE));
-        this.network = new BloodNetwork(loaded.data(), auditLog);
-        this.requests = new RequestService(network);
-        this.transfers = new TransferService(network);
-        network.removeExpired(today);
-        save();
+        reload();
+        change(() -> network.removeExpired(today));
+    }
+
+    /** The configured date, else a demo date saved earlier (if not in the past), else the system date. */
+    private LocalDate startDate(RaktSetuProperties properties) {
+        if (properties.today() != null) {
+            return properties.today();
+        }
+        LocalDate system = properties.startDate();
+        return state.get(StateRepository.TODAY).map(LocalDate::parse).filter(d -> !d.isBefore(system))
+                .orElse(system);
     }
 
     // ------------------------------------------------------------------ overview
@@ -110,7 +137,7 @@ public class NetworkService {
         int atRisk = engine.risks(network, today).stream().mapToInt(r -> r.atRisk().size()).sum();
         int hospitals = network.facilities().size() - network.storingFacilities().size();
         return new Summary(today, network.storingFacilities().size(), hospitals, units, urgent, atRisk,
-                network.wastage().size(), pendingTransfers().size(), auditLog.verify().intact());
+                network.wastage().size(), pendingTransfers().size(), auditRepo.verify().intact());
     }
 
     public synchronized List<FacilityView> facilities() {
@@ -183,15 +210,17 @@ public class NetworkService {
         BloodGroup group = BloodGroup.parse(input.group());
         LocalDate collected = input.collectedOn() == null ? today : input.collectedOn();
         int quantity = requirePositive(input.quantity(), "quantity", 500);
-        List<BloodComponent> added = network.addUnits(facilityId, type, group, collected, quantity, today);
-        save();
+        List<BloodComponent> added = change(
+                () -> network.addUnits(facilityId, type, group, collected, quantity, today));
         return new AddedUnits(added.stream().map(BloodComponent::getId).toList(), added.get(0).getExpiryDate());
     }
 
     public synchronized FacilityView recordReport(String facilityId) throws RaktSetuException {
-        Facility f = network.facility(facilityId);
-        f.markReported(today);
-        save();
+        Facility f = change(() -> {
+            Facility facility = network.facility(facilityId);
+            facility.markReported(today);
+            return facility;
+        });
         return view(f, atRiskByFacility());
     }
 
@@ -203,9 +232,8 @@ public class NetworkService {
         int quantity = requirePositive(input.quantity(), "quantity", 50);
         Urgency urgency = input.urgency() == null || input.urgency().isBlank()
                 ? Urgency.EMERGENCY : Urgency.parse(input.urgency());
-        RequestOutcome outcome = requests.handle(new BloodRequest(input.hospitalId(), type, group, quantity, urgency),
-                today);
-        save();
+        BloodRequest request = new BloodRequest(input.hospitalId(), type, group, quantity, urgency);
+        RequestOutcome outcome = change(() -> requests.handle(request, today));
         List<AllocationView> allocations = new ArrayList<>();
         for (Allocation a : outcome.allocations()) {
             allocations.add(new AllocationView(a.source().getId(), a.source().getName(), a.route().distanceKm(),
@@ -264,8 +292,10 @@ public class NetworkService {
 
     public synchronized TransferView approve(String transferId) throws RaktSetuException {
         TransferOrder order = order(transferId);
-        transfers.approve(order, today);
-        save();
+        change(() -> {
+            transfers.approve(order, today);
+            return order;
+        });
         return view(order);
     }
 
@@ -280,17 +310,15 @@ public class NetworkService {
 
     // ------------------------------------------------------------------ audit, simulation, date
 
-    public synchronized AuditView audit(int limit) throws RaktSetuException {
-        List<AuditRecord> records = auditLog.readAll();
-        int from = Math.max(0, records.size() - Math.max(1, limit));
+    public synchronized AuditView audit(int limit) {
         List<AuditEntry> entries = new ArrayList<>();
-        for (AuditRecord r : records.subList(from, records.size()).reversed()) {
+        for (AuditRecord r : auditRepo.latest(limit)) {
             var e = r.event();
             entries.add(new AuditEntry(r.sequence(), e.date(), e.type().name(), e.facilityId(), e.counterparty(),
                     e.component().name(), e.group().label(), e.unitIds().size(), e.note(), r.hash()));
         }
-        AuditLogger.Verification v = auditLog.verify();
-        return new AuditView(records.size(), v.intact(), v.message(), entries);
+        AuditRepository.Verification v = auditRepo.verify();
+        return new AuditView(auditRepo.count(), v.intact(), v.message(), entries);
     }
 
     public synchronized SimulationView simulate(Integer days) throws RaktSetuException {
@@ -317,16 +345,53 @@ public class NetworkService {
                     + today);
         }
         today = date;
-        network.removeExpired(today);
         plan.clear();
-        save();
+        change(() -> network.removeExpired(today));
         return summary();
     }
 
     // ------------------------------------------------------------------ helpers
 
-    private void save() throws RaktSetuException {
-        loader.save(network.snapshot());
+    /**
+     * Runs a command on the in-memory network and writes its effects to the database in one transaction. Effects are
+     * written even when the command then fails (for example, expired units discarded before a request that could not
+     * be met). If writing fails, the network is reloaded from the database and the error is rethrown.
+     */
+    private <T> T change(Command<T> command) throws RaktSetuException {
+        capture.clear();
+        T result = null;
+        RaktSetuException refused = null;
+        try {
+            result = command.run();
+        } catch (RaktSetuException e) {
+            refused = e;
+        }
+        List<AuditEvent> events = capture.drain();
+        try {
+            tx.executeWithoutResult(s -> {
+                auditRepo.append(events);
+                networkRepo.apply(events, network);
+                networkRepo.saveReportDates(network.facilities());
+                state.put(StateRepository.NEXT_UNIT_SERIAL, String.valueOf(network.snapshot().nextUnitSerial()));
+                state.put(StateRepository.TODAY, today.toString());
+            });
+        } catch (RuntimeException e) {
+            reload();
+            throw e;
+        }
+        if (refused != null) {
+            throw refused;
+        }
+        return result;
+    }
+
+    /** Rebuilds the in-memory network from the database. */
+    private void reload() {
+        long serial = state.get(StateRepository.NEXT_UNIT_SERIAL).map(Long::parseLong).orElse(1L);
+        network = new BloodNetwork(networkRepo.load(serial), capture);
+        requests = new RequestService(network);
+        transfers = new TransferService(network);
+        plan.clear();
     }
 
     private TransferOrder order(String id) throws RaktSetuException {

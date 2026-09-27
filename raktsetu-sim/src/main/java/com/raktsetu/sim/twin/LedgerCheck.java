@@ -28,9 +28,9 @@ public final class LedgerCheck {
             for (String unit : e.unitIds()) {
                 String at = location.get(unit);
                 switch (e.type()) {
-                    case COLLECTED -> {
+                    case COLLECTED, RETURNED -> {
                         if (at != null) {
-                            problems.add(unit + " collected twice");
+                            problems.add(unit + " " + e.type() + " while already at " + at);
                         }
                         location.put(unit, e.facilityId());
                     }
