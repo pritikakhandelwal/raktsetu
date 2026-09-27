@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -33,7 +32,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Tests share one application; the few that change state are ordered after the read-only ones.
  */
 @SpringBootTest
-@AutoConfigureMockMvc
 @DirtiesContext
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ApiTest {
@@ -57,7 +55,21 @@ class ApiTest {
     }
 
     @Autowired
+    org.springframework.web.context.WebApplicationContext context;
+
     MockMvc mvc;
+
+    /** Every request is made as the administrator, with a valid CSRF token; SecurityTest covers the other roles. */
+    @org.junit.jupiter.api.BeforeEach
+    void signInAsAdmin() {
+        mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(context)
+                .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity())
+                .defaultRequest(get("/").with(org.springframework.security.test.web.servlet.request
+                        .SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN"))
+                        .with(org.springframework.security.test.web.servlet.request
+                                .SecurityMockMvcRequestPostProcessors.csrf()))
+                .build();
+    }
 
     private ResultActions postJson(String url, String json) throws Exception {
         return mvc.perform(post(url).contentType(MediaType.APPLICATION_JSON).content(json));

@@ -21,6 +21,9 @@ import com.raktsetu.server.ApiModels.StrategyView;
 import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.ApiModels.TransferView;
 import com.raktsetu.server.ApiModels.WastageView;
+import com.raktsetu.server.security.CurrentUsers;
+import com.raktsetu.server.security.Role;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,15 +34,21 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** The REST API. Every endpoint delegates to {@link NetworkService}; errors are mapped by {@link ApiErrors}. */
+/**
+ * The REST API. Every endpoint needs a signed-in user (see {@code SecurityConfig}). Anyone signed in may look;
+ * changes are limited by role: centre staff act only for their centre, hospital staff only for their hospital, and
+ * planning, approvals, the simulation and the demo date are for administrators. Errors are mapped by {@link ApiErrors}.
+ */
 @RestController
 @RequestMapping("/api")
 public class ApiController {
 
     private final NetworkService service;
+    private final CurrentUsers users;
 
-    public ApiController(NetworkService service) {
+    public ApiController(NetworkService service, CurrentUsers users) {
         this.service = service;
+        this.users = users;
     }
 
     @GetMapping("/summary")
@@ -58,12 +67,15 @@ public class ApiController {
     }
 
     @PostMapping("/facilities/{id}/units")
-    public AddedUnits addUnits(@PathVariable String id, @RequestBody AddUnitsInput input) throws RaktSetuException {
+    public AddedUnits addUnits(@PathVariable String id, @RequestBody AddUnitsInput input, Authentication auth)
+            throws RaktSetuException {
+        users.of(auth).requireActingFor(id, Role.CENTRE_STAFF);
         return service.addUnits(id, input);
     }
 
     @PostMapping("/facilities/{id}/report")
-    public FacilityView recordReport(@PathVariable String id) throws RaktSetuException {
+    public FacilityView recordReport(@PathVariable String id, Authentication auth) throws RaktSetuException {
+        users.of(auth).requireActingFor(id, Role.CENTRE_STAFF);
         return service.recordReport(id);
     }
 
@@ -73,7 +85,8 @@ public class ApiController {
     }
 
     @PostMapping("/requests")
-    public RequestResult request(@RequestBody BloodRequestInput input) throws RaktSetuException {
+    public RequestResult request(@RequestBody BloodRequestInput input, Authentication auth) throws RaktSetuException {
+        users.of(auth).requireActingFor(input == null ? null : input.hospitalId(), Role.HOSPITAL_STAFF);
         return service.request(input);
     }
 
@@ -98,7 +111,8 @@ public class ApiController {
     }
 
     @PostMapping("/plans")
-    public List<TransferView> plan(@RequestBody PlanInput input) {
+    public List<TransferView> plan(@RequestBody PlanInput input, Authentication auth) {
+        users.of(auth).requireAdmin();
         return service.plan(input == null ? null : input.strategy());
     }
 
@@ -108,22 +122,26 @@ public class ApiController {
     }
 
     @PostMapping("/transfers/{id}/approve")
-    public TransferView approve(@PathVariable String id) throws RaktSetuException {
+    public TransferView approve(@PathVariable String id, Authentication auth) throws RaktSetuException {
+        users.of(auth).requireAdmin();
         return service.approve(id);
     }
 
     @PostMapping("/transfers/{id}/reject")
-    public TransferView reject(@PathVariable String id) throws RaktSetuException {
+    public TransferView reject(@PathVariable String id, Authentication auth) throws RaktSetuException {
+        users.of(auth).requireAdmin();
         return service.reject(id);
     }
 
     @GetMapping("/audit")
-    public AuditView audit(@RequestParam(defaultValue = "20") int limit) throws RaktSetuException {
+    public AuditView audit(@RequestParam(defaultValue = "20") int limit) {
         return service.audit(limit);
     }
 
     @PostMapping("/simulations")
-    public SimulationView simulate(@RequestBody(required = false) SimulationInput input) throws RaktSetuException {
+    public SimulationView simulate(@RequestBody(required = false) SimulationInput input, Authentication auth)
+            throws RaktSetuException {
+        users.of(auth).requireAdmin();
         return service.simulate(input == null ? null : input.days());
     }
 
@@ -133,7 +151,8 @@ public class ApiController {
     }
 
     @PostMapping("/date")
-    public Summary advanceDate(@RequestBody DateInput input) throws RaktSetuException {
+    public Summary advanceDate(@RequestBody DateInput input, Authentication auth) throws RaktSetuException {
+        users.of(auth).requireAdmin();
         return service.advanceTo(input == null ? null : input.today());
     }
 }
