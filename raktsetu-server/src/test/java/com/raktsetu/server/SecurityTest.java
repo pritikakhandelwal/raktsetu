@@ -1,6 +1,5 @@
 package com.raktsetu.server;
 
-import com.raktsetu.server.security.DemoAccounts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DirtiesContext
 class SecurityTest {
 
-    private static final String PASSWORD = "test-password-123";
+    private static final String PASSWORD = TestFixtures.PASSWORD;
     private static final Path DATA;
 
     static {
@@ -50,7 +49,7 @@ class SecurityTest {
         TestDatabase.register(registry, "securitytest");
         registry.add("raktsetu.data-dir", DATA::toString);
         registry.add("raktsetu.today", () -> "2026-10-01");
-        registry.add("raktsetu.demo-password", () -> PASSWORD);
+        registry.add("raktsetu.routing-url", () -> "");
     }
 
     @Autowired
@@ -60,6 +59,7 @@ class SecurityTest {
 
     @BeforeEach
     void setUp() {
+        TestFixtures.sampleNetwork(context);
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
     }
 
@@ -88,7 +88,7 @@ class SecurityTest {
     void wrongPasswordIsRefused() throws Exception {
         mvc.perform(json(post("/api/auth/login").with(csrf()), login("admin", "nope")))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.message").value("Wrong username or password"));
+                .andExpect(jsonPath("$.message").value("Wrong username or password, or the account is disabled"));
     }
 
     @Test
@@ -105,12 +105,6 @@ class SecurityTest {
 
         mvc.perform(post("/api/auth/logout").session(session).with(csrf())).andExpect(status().isNoContent());
         mvc.perform(get("/api/summary").session(session)).andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void demoAccountsAreWrittenToTheDataFolderOnly() throws Exception {
-        String text = Files.readString(DATA.resolve(DemoAccounts.FILE));
-        assertThat(text).contains(PASSWORD).contains("admin").contains("sc04").contains("h01");
     }
 
     @Test
@@ -137,7 +131,8 @@ class SecurityTest {
         mvc.perform(json(post("/api/requests").with(user("sc01")).with(csrf()),
                         "{\"hospitalId\":\"H01\",\"component\":\"PLASMA\",\"group\":\"AB+\",\"quantity\":1}"))
                 .andExpect(status().isForbidden());
-        mvc.perform(json(post("/api/date").with(user("sc01")).with(csrf()), "{\"today\":\"2026-10-02\"}"))
+        mvc.perform(json(post("/api/facilities").with(user("sc01")).with(csrf()),
+                        "{\"name\":\"X\",\"type\":\"HOSPITAL\",\"latitude\":18.5,\"longitude\":73.8}"))
                 .andExpect(status().isForbidden());
     }
 

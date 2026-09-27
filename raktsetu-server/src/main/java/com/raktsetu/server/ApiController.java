@@ -7,12 +7,13 @@ import com.raktsetu.server.ApiModels.AuditView;
 import com.raktsetu.server.ApiModels.CompatibilityInput;
 import com.raktsetu.server.ApiModels.CompatibilityView;
 import com.raktsetu.server.ApiModels.ComparisonView;
+import com.raktsetu.server.ApiModels.FacilityInput;
 import com.raktsetu.server.ApiModels.FacilityStock;
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.ApiModels.NetworkStock;
 import com.raktsetu.server.ApiModels.RiskView;
-import com.raktsetu.server.ApiModels.SimulationInput;
-import com.raktsetu.server.ApiModels.SimulationView;
+import com.raktsetu.server.ApiModels.RouteInput;
+import com.raktsetu.server.ApiModels.RouteView;
 import com.raktsetu.server.ApiModels.StrategyView;
 import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.ApiModels.WastageView;
@@ -22,6 +23,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,7 +34,7 @@ import java.util.List;
 /**
  * The REST API. Every endpoint needs a signed-in user (see {@code SecurityConfig}). Anyone signed in may look;
  * changes are limited by role: centre staff act only for their centre, hospital staff only for their hospital, and
- * the simulation is for administrators. Requests, transfers and notifications are in {@link WorkflowController}.
+ * facilities and routes are managed by administrators. Requests, transfers and notifications are in {@link WorkflowController}.
  * Errors are mapped by {@link ApiErrors}.
  */
 @RestController
@@ -105,11 +107,29 @@ public class ApiController {
         return service.audit(limit);
     }
 
-    @PostMapping("/simulations")
-    public SimulationView simulate(@RequestBody(required = false) SimulationInput input, Authentication auth)
+    @PostMapping("/facilities")
+    public FacilityView addFacility(@RequestBody FacilityInput input, Authentication auth) {
+        users.of(auth).requireAdmin();
+        return service.addFacility(input);
+    }
+
+    @PutMapping("/facilities/{id}")
+    public FacilityView updateFacility(@PathVariable String id, @RequestBody FacilityInput input, Authentication auth)
             throws RaktSetuException {
         users.of(auth).requireAdmin();
-        return service.simulate(input == null ? null : input.days());
+        return service.updateFacility(id, input);
+    }
+
+    @GetMapping("/facilities/{id}/routes")
+    public List<RouteView> routes(@PathVariable String id) throws RaktSetuException {
+        return service.routes(id);
+    }
+
+    @PutMapping("/routes/{fromId}/{toId}")
+    public RouteView setRoute(@PathVariable String fromId, @PathVariable String toId, @RequestBody RouteInput input,
+                              Authentication auth) throws RaktSetuException {
+        users.of(auth).requireAdmin();
+        return service.setRoute(fromId, toId, input);
     }
 
     @GetMapping("/wastage")

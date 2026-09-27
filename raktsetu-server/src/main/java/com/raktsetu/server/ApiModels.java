@@ -17,7 +17,12 @@ public final class ApiModels {
     }
 
     public record FacilityView(String id, String name, String type, LocalDate lastReportedOn, Long daysSinceReport,
-                               String freshness, int units, int urgentUnits, int atRiskUnits) {
+                               String freshness, int units, int urgentUnits, int atRiskUnits, Double latitude,
+                               Double longitude, String address) {
+    }
+
+    /** A route from one facility to another, and where the figures came from (OSRM, ESTIMATE or MANUAL). */
+    public record RouteView(String toId, String toName, int distanceKm, int travelMinutes, String source) {
     }
 
     public record StockLine(String component, String group, int units, LocalDate soonestExpiry, long daysLeft,
@@ -76,14 +81,6 @@ public final class ApiModels {
     public record AuditView(int total, boolean intact, String message, List<AuditEntry> entries) {
     }
 
-    public record SimulationRow(String policy, int unitsExpired, Map<String, Integer> expiredByComponent,
-                                int requestsFulfilled, int requestsUnmet, int unitsTransferred,
-                                double wastageReductionPercent) {
-    }
-
-    public record SimulationView(int days, long seed, LocalDate start, List<SimulationRow> results) {
-    }
-
     public record WastageView(int total, Map<String, Integer> byComponent, Map<String, Integer> byFacility) {
     }
 
@@ -105,13 +102,18 @@ public final class ApiModels {
     public record PlanInput(String strategy) {
     }
 
-    public record AddUnitsInput(String component, String group, LocalDate collectedOn, Integer quantity) {
+    /**
+     * Units received at a centre. {@code unitId} is the bag's own donation number, if it has one; it can only be given
+     * when logging a single unit. Without it, RaktSetu assigns IDs.
+     */
+    public record AddUnitsInput(String component, String group, LocalDate collectedOn, Integer quantity,
+                                String unitId) {
     }
 
-    public record SimulationInput(Integer days) {
+    public record FacilityInput(String name, String type, Double latitude, Double longitude, String address) {
     }
 
-    public record DateInput(LocalDate today) {
+    public record RouteInput(Integer distanceKm, Integer travelMinutes) {
     }
 
     public record DiscardInput(String reason) {

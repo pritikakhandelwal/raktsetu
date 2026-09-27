@@ -2,12 +2,10 @@ package com.raktsetu.server;
 
 import com.raktsetu.domain.exception.RaktSetuException;
 import com.raktsetu.server.ApiModels.BloodRequestInput;
-import com.raktsetu.server.ApiModels.DateInput;
 import com.raktsetu.server.ApiModels.DiscardInput;
 import com.raktsetu.server.ApiModels.NotificationList;
 import com.raktsetu.server.ApiModels.PlanInput;
 import com.raktsetu.server.ApiModels.RequestView;
-import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.ApiModels.TransferView;
 import com.raktsetu.server.security.AppUser;
 import com.raktsetu.server.security.CurrentUsers;
@@ -23,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Requests, transfers, discards, notifications and the demo date. Permission checks are explained per endpoint. */
+/** Requests, transfers, discards and notifications. Permission checks are explained per endpoint. */
 @RestController
 @RequestMapping("/api")
 public class WorkflowController {
@@ -127,12 +125,5 @@ public class WorkflowController {
     public ResponseEntity<Void> markAllRead(Authentication auth) {
         workflows.markAllRead(users.of(auth));
         return ResponseEntity.noContent().build();
-    }
-
-    /** Admins only: moves the demo date forward. */
-    @PostMapping("/date")
-    public Summary advanceDate(@RequestBody DateInput input, Authentication auth) throws RaktSetuException {
-        users.of(auth).requireAdmin();
-        return workflows.advanceTo(input == null ? null : input.today());
     }
 }

@@ -139,6 +139,75 @@ public class NetworkRepository {
         }
     }
 
+    // ------------------------------------------------------------------ facilities and routes (administration)
+
+    /** Where a facility is. Any field may be null for facilities created before locations were recorded. */
+    public record Location(Double latitude, Double longitude, String address) {
+    }
+
+    /** One stored route, with where its figures came from (OSRM, ESTIMATE or MANUAL). */
+    public record RouteRow(String fromId, String toId, int distanceKm, int travelMinutes, String source) {
+    }
+
+    public Map<String, Location> locations() {
+        Map<String, Location> map = new LinkedHashMap<>();
+        jdbc.sql("select id, latitude, longitude, address from facility order by position").query((rs, n) -> {
+            map.put(rs.getString("id"), new Location(rs.getObject("latitude", Double.class),
+                    rs.getObject("longitude", Double.class), rs.getString("address")));
+            return n;
+        }).list();
+        return map;
+    }
+
+    /** The next free ID with this prefix: HUB01, SC03, H12... */
+    public String nextFacilityId(String prefix) {
+        int max = jdbc.sql("select id from facility where id like ?").param(prefix + "%").query(String.class).list()
+                .stream().map(id -> id.substring(prefix.length()))
+                .filter(s -> s.matches("\\d+")).mapToInt(Integer::parseInt).max().orElse(0);
+        return String.format(java.util.Locale.ROOT, "%s%02d", prefix, max + 1);
+    }
+
+    public void insertFacility(String id, String name, FacilityType type, double latitude, double longitude,
+                               String address) {
+        int position = jdbc.sql("select count(*) from facility").query(Integer.class).single();
+        jdbc.sql("insert into facility (id, name, type, last_reported_on, position, latitude, longitude, address) "
+                        + "values (?, ?, ?, ?, ?, ?, ?, ?)")
+                .params(id, name, type.name(), null, position, latitude, longitude, address)
+                .update();
+    }
+
+    public void updateFacility(String id, String name, double latitude, double longitude, String address) {
+        jdbc.sql("update facility set name = ?, latitude = ?, longitude = ?, address = ? where id = ?")
+                .params(name, latitude, longitude, address, id).update();
+    }
+
+    /** Replaces every route to and from a facility. */
+    public void replaceRoutes(String facilityId, List<RouteRow> routes) {
+        jdbc.sql("delete from route where from_id = ? or to_id = ?").params(facilityId, facilityId).update();
+        for (RouteRow r : routes) {
+            upsertRoute(r);
+        }
+    }
+
+    public void upsertRoute(RouteRow r) {
+        int updated = jdbc.sql("update route set distance_km = ?, travel_minutes = ?, source = ? "
+                        + "where from_id = ? and to_id = ?")
+                .params(r.distanceKm(), r.travelMinutes(), r.source(), r.fromId(), r.toId()).update();
+        if (updated == 0) {
+            jdbc.sql("insert into route (from_id, to_id, distance_km, travel_minutes, source) values (?, ?, ?, ?, ?)")
+                    .params(r.fromId(), r.toId(), r.distanceKm(), r.travelMinutes(), r.source()).update();
+        }
+    }
+
+    public List<RouteRow> routesFrom(String facilityId) {
+        return jdbc.sql("select from_id, to_id, distance_km, travel_minutes, source from route where from_id = ? "
+                        + "order by travel_minutes")
+                .param(facilityId)
+                .query((rs, n) -> new RouteRow(rs.getString("from_id"), rs.getString("to_id"),
+                        rs.getInt("distance_km"), rs.getInt("travel_minutes"), rs.getString("source")))
+                .list();
+    }
+
     /** Saves each facility's last report date. */
     public void saveReportDates(List<Facility> facilities) {
         for (Facility f : facilities) {

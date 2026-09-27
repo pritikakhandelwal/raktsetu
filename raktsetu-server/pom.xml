@@ -46,9 +46,11 @@
             <groupId>com.raktsetu</groupId>
             <artifactId>raktsetu-persistence</artifactId>
         </dependency>
+        <!-- Tests build their fixture network with the simulator's sample network generator. -->
         <dependency>
             <groupId>com.raktsetu</groupId>
             <artifactId>raktsetu-sim</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

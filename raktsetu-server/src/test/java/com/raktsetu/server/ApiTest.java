@@ -51,7 +51,7 @@ class ApiTest {
         registry.add("raktsetu.data-dir", DATA::toString);
         TestDatabase.register(registry, "apitest");
         registry.add("raktsetu.today", () -> "2026-10-01");
-        registry.add("raktsetu.seed", () -> "42");
+        registry.add("raktsetu.routing-url", () -> "");
     }
 
     @Autowired
@@ -62,6 +62,7 @@ class ApiTest {
     /** Every request is made as the administrator, with a valid CSRF token; SecurityTest covers the other roles. */
     @org.junit.jupiter.api.BeforeEach
     void signInAsAdmin() {
+        TestFixtures.sampleNetwork(context);
         mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(context)
                 .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity())
                 .defaultRequest(get("/").with(org.springframework.security.test.web.servlet.request
@@ -182,26 +183,6 @@ class ApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    @Test
-    @Order(5)
-    void simulationComparesThreePolicies() throws Exception {
-        postJson("/api/simulations", "{\"days\":5}")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.results", hasSize(3)))
-                .andExpect(jsonPath("$.results[0].policy").value("no redistribution"));
-        postJson("/api/simulations", "{\"days\":0}").andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @Order(6)
-    void dateOnlyMovesForward() throws Exception {
-        postJson("/api/date", "{\"today\":\"2026-09-01\"}").andExpect(status().isBadRequest());
-        postJson("/api/date", "{\"today\":\"2026-10-03\"}")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.today").value("2026-10-03"));
-        mvc.perform(get("/api/summary")).andExpect(jsonPath("$.today").value("2026-10-03"));
-    }
-
     @Autowired
     org.springframework.jdbc.core.simple.JdbcClient jdbc;
 
@@ -210,9 +191,7 @@ class ApiTest {
     void everyChangeWasWrittenToTheDatabase() {
         int units = jdbc.sql("select count(*) from unit").query(Integer.class).single();
         int audit = jdbc.sql("select count(*) from audit_log").query(Integer.class).single();
-        String today = jdbc.sql("select state_value from app_state where state_key = 'today'").query(String.class).single();
         org.assertj.core.api.Assertions.assertThat(units).isPositive();
         org.assertj.core.api.Assertions.assertThat(audit).isGreaterThan(3);
-        org.assertj.core.api.Assertions.assertThat(today).isEqualTo("2026-10-03");
     }
 }

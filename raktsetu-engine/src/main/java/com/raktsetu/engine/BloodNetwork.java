@@ -150,6 +150,38 @@ public final class BloodNetwork {
     }
 
     /**
+     * Adds one unit under its own ID, for example the donation number printed on the bag.
+     *
+     * @throws FacilityNotFoundException if the facility does not exist
+     * @throws IllegalArgumentException  if the ID is blank or already in stock anywhere, the facility does not store
+     *                                   blood, or the collection date is in the future
+     */
+    public BloodComponent addUnit(String facilityId, String unitId, ComponentType type, BloodGroup group,
+                                  LocalDate collectedOn, LocalDate today) throws FacilityNotFoundException {
+        Facility f = facility(facilityId);
+        if (!f.canStore()) {
+            throw new IllegalArgumentException(f + " does not store blood");
+        }
+        if (unitId == null || unitId.isBlank()) {
+            throw new IllegalArgumentException("Unit ID is required");
+        }
+        if (collectedOn.isAfter(today)) {
+            throw new IllegalArgumentException("Collection date cannot be in the future");
+        }
+        String id = unitId.trim();
+        for (Facility other : storingFacilities()) {
+            if (other.getInventory().find(id).isPresent()) {
+                throw new IllegalArgumentException("Unit " + id + " is already in stock at " + other.getId());
+            }
+        }
+        BloodComponent unit = type.newUnit(id, group, collectedOn);
+        f.getInventory().add(unit);
+        audit.record(new AuditEvent(today, AuditEventType.COLLECTED, f.getId(), "", type, group, List.of(id),
+                "added 1"));
+        return unit;
+    }
+
+    /**
      * Removes one specific unit from stock as wastage, for example because the bag is damaged, and records why.
      *
      * @throws FacilityNotFoundException if the facility does not exist

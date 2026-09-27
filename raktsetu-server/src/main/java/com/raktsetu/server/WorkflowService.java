@@ -12,19 +12,16 @@ import com.raktsetu.domain.model.TransferOrder;
 import com.raktsetu.domain.model.Urgency;
 import com.raktsetu.engine.Allocation;
 import com.raktsetu.engine.BloodNetwork;
-import com.raktsetu.engine.Freshness;
 import com.raktsetu.engine.RequestOutcome;
 import com.raktsetu.server.ApiModels.BloodRequestInput;
 import com.raktsetu.server.ApiModels.NotificationList;
 import com.raktsetu.server.ApiModels.NotificationView;
 import com.raktsetu.server.ApiModels.RequestPart;
 import com.raktsetu.server.ApiModels.RequestView;
-import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.ApiModels.TransferView;
 import com.raktsetu.server.db.NotificationRepository;
 import com.raktsetu.server.db.NotificationRepository.Kind;
 import com.raktsetu.server.db.RequestRepository;
-import com.raktsetu.server.db.StateRepository;
 import com.raktsetu.server.db.TransferRepository;
 import com.raktsetu.server.security.AppUser;
 import com.raktsetu.server.security.Role;
@@ -55,20 +52,15 @@ public class WorkflowService {
     private final RequestRepository requests;
     private final TransferRepository transfers;
     private final NotificationRepository notifications;
-    private final StateRepository state;
     private final TransactionTemplate tx;
 
     public WorkflowService(NetworkService network, RequestRepository requests, TransferRepository transfers,
-                           NotificationRepository notifications, StateRepository state, TransactionTemplate tx) {
+                           NotificationRepository notifications, TransactionTemplate tx) {
         this.network = network;
         this.requests = requests;
         this.transfers = transfers;
         this.notifications = notifications;
-        this.state = state;
         this.tx = tx;
-        synchronized (network) {
-            dailyDigest();
-        }
     }
 
     // ------------------------------------------------------------------ requests
@@ -295,16 +287,7 @@ public class WorkflowService {
         }
     }
 
-    // ------------------------------------------------------------------ date and notifications
-
-    /** Moves the demo date forward, then sends the new day's reminders. */
-    public Summary advanceTo(LocalDate date) throws RaktSetuException {
-        synchronized (network) {
-            network.advanceTo(date);
-            dailyDigest();
-            return network.summary();
-        }
-    }
+    // ------------------------------------------------------------------ notifications
 
     public NotificationList notifications(AppUser user) {
         String audience = user.isAdmin() ? null : user.facilityId();
@@ -321,44 +304,6 @@ public class WorkflowService {
 
     public void markAllRead(AppUser user) {
         notifications.markAllRead(user.isAdmin() ? null : user.facilityId());
-    }
-
-    /**
-     * Once per day: tells each centre about stock expiring within two days and overdue stock reports, and tells
-     * administrators which centres' data cannot be trusted and how much stock is at risk.
-     */
-    private void dailyDigest() {
-        LocalDate today = network.today();
-        if (state.get(StateRepository.LAST_DIGEST).map(today.toString()::equals).orElse(false)) {
-            return;
-        }
-        BloodNetwork net = network.network();
-        List<String> unverified = new ArrayList<>();
-        int atRisk = network.engine().risks(net, today).stream().mapToInt(r -> r.atRisk().size()).sum();
-        tx.executeWithoutResult(s -> {
-            for (Facility f : net.storingFacilities()) {
-                int urgent = network.urgentUnitsAt(f);
-                if (urgent > 0) {
-                    notifications.add(today, f.getId(), Kind.EXPIRING_SOON, urgent + " unit(s) expire within 2 days. "
-                            + "Issue them first, or they may be offered to other centres.");
-                }
-                if (Freshness.of(f, today) == Freshness.UNVERIFIED) {
-                    unverified.add(f.getId());
-                    notifications.add(today, f.getId(), Kind.REPORT_OVERDUE, "Your stock was last reported on "
-                            + (f.getLastReportedOn() == null ? "never" : f.getLastReportedOn())
-                            + ". Please report today's stock so the network can rely on it.");
-                }
-            }
-            if (!unverified.isEmpty()) {
-                notifications.add(today, null, Kind.REPORT_OVERDUE, "Stock data is unverified (over 3 days old) for "
-                        + String.join(", ", unverified) + ". Their stock is searched last and receives no transfers.");
-            }
-            if (atRisk > 0) {
-                notifications.add(today, null, Kind.EXPIRING_SOON, atRisk + " unit(s) are at risk of expiring unused "
-                        + "this week. Generate a transfer plan to rescue them.");
-            }
-            state.put(StateRepository.LAST_DIGEST, today.toString());
-        });
     }
 
     // ------------------------------------------------------------------ helpers

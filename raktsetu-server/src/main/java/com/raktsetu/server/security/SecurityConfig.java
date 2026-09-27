@@ -18,25 +18,29 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CsrfFilter;
 
 /**
  * Session-based sign-in for the single-page app. Every {@code /api} call needs a signed-in user except signing in
- * itself; unauthenticated calls get 401 (not a redirect). CSRF protection uses the standard single-page-app setup: the
+ * and first-time setup; unauthenticated calls get 401 (not a redirect). Accounts with a one-time password can only
+ * change their password until they do. CSRF protection uses the standard single-page-app setup: the
  * token is in the {@code XSRF-TOKEN} cookie and the front end echoes it in the {@code X-XSRF-TOKEN} header.
  */
 @Configuration
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, SecurityContextRepository contexts) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http, SecurityContextRepository contexts, UserRepository users)
+            throws Exception {
         http
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/auth/login", "/api/auth/me").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/me", "/api/setup").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .csrf(c -> c.spa())
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
+                .addFilterAfter(new PasswordChangeFilter(users), AuthorizationFilter.class)
                 .securityContext(s -> s.securityContextRepository(contexts))
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .formLogin(AbstractHttpConfigurer::disable)

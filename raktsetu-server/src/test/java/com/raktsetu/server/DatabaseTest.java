@@ -14,8 +14,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.file.Path;
-import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +29,7 @@ class DatabaseTest {
     static void properties(DynamicPropertyRegistry registry) {
         TestDatabase.register(registry, "dbtest");
         registry.add("raktsetu.today", () -> "2026-10-01");
+        registry.add("raktsetu.routing-url", () -> "");
     }
 
     @Autowired
@@ -46,15 +45,21 @@ class DatabaseTest {
     @Autowired
     JdbcClient jdbc;
 
-    private NetworkService restart() throws Exception {
-        return new NetworkService(new RaktSetuProperties(Path.of("unused"), LocalDate.of(2026, 10, 1), 42L, null),
-                networkRepo, auditRepo, state, transferRepo, tx);
+    @Autowired
+    org.springframework.context.ApplicationContext context;
+
+    /** A new service on the same database, as after a server restart. */
+    private NetworkService restart() {
+        TestFixtures.sampleNetwork(context);
+        return new NetworkService(networkRepo, auditRepo, state, transferRepo,
+                context.getBean(com.raktsetu.server.db.NotificationRepository.class),
+                context.getBean(RouteService.class), jdbc, tx, context.getBean(java.time.Clock.class));
     }
 
     @Test
     void aRestartedServiceSeesEverythingThatWasWritten() throws Exception {
         NetworkService service = restart();
-        service.addUnits("SC01", new AddUnitsInput("PLATELETS", "AB-", null, 3));
+        service.addUnits("SC01", new AddUnitsInput("PLATELETS", "AB-", null, 3, null));
         service.recordReport("SC03");
         Summary before = service.summary();
 
@@ -71,13 +76,14 @@ class DatabaseTest {
 
     @Test
     void newUnitIdsContinueAfterARestart() throws Exception {
-        String first = restart().addUnits("SC02", new AddUnitsInput("PLASMA", "A+", null, 1)).unitIds().get(0);
-        String next = restart().addUnits("SC02", new AddUnitsInput("PLASMA", "A+", null, 1)).unitIds().get(0);
+        String first = restart().addUnits("SC02", new AddUnitsInput("PLASMA", "A+", null, 1, null)).unitIds().get(0);
+        String next = restart().addUnits("SC02", new AddUnitsInput("PLASMA", "A+", null, 1, null)).unitIds().get(0);
         assertThat(next).isGreaterThan(first);
     }
 
     @Test
     void editingAnAuditRowIsDetected() {
+        TestFixtures.sampleNetwork(context);
         jdbc.sql("update audit_log set note = 'edited' where seq = 1").update();
         AuditRepository.Verification v = auditRepo.verify();
         assertThat(v.intact()).isFalse();

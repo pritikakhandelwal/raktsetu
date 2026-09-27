@@ -26,7 +26,7 @@ class CsrfCookieTest {
     static void properties(DynamicPropertyRegistry registry) {
         TestDatabase.register(registry, "csrftest");
         registry.add("raktsetu.today", () -> "2026-10-01");
-        registry.add("raktsetu.demo-password", () -> "unused-password");
+        registry.add("raktsetu.routing-url", () -> "");
     }
 
     @Autowired
