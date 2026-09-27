@@ -1,0 +1,74 @@
+@startuml alerts
+' RaktSetu urgent alerts (SMS / WhatsApp): transactional outbox and pluggable channels. Keep in sync with
+' raktsetu-server/src/main/java/com/raktsetu/server/alerts.
+skinparam classAttributeIconSize 0
+hide empty members
+
+interface AlertChannel {
+  +name() : String
+  +configured() : boolean
+  +send(phone, message)
+}
+abstract class HttpAlertChannel {
+  -http : HttpClient
+  #{abstract} request(phone, message) : HttpRequest.Builder
+  +send(phone, message) {final}
+}
+class SmsChannel {
+  -settings : AlertProperties.Sms
+}
+class WhatsAppChannel {
+  -settings : AlertProperties.WhatsApp
+}
+class LogChannel
+class AlertDeliveryException {
+  -retryable : boolean
+  +retryable() : boolean
+}
+class AlertChannels {
+  -all : List<AlertChannel>
+  +active() : List<AlertChannel>
+  +byName(name) : Optional<AlertChannel>
+}
+class AlertOutbox <<Repository>> {
+  +enqueue(notificationId, facilityId, kind, message) : int
+  +due(now, limit) : List<Due>
+  +markSent(id, attempts, now)
+  +markRetry(id, attempts, nextAt, error)
+  +markFailed(id, attempts, error)
+}
+class AlertDispatcher {
+  -maxAttempts : int
+  +deliverDue(now) : Report
+  ~{static} backoff(attempt) : Duration
+}
+class NotificationRepository <<Repository>> {
+  +add(day, facilityId, kind, message)
+}
+class AlertProperties <<record>>
+class PhoneNumbers {
+  +{static} normalise(input) : String
+  +{static} mask(phone) : String
+}
+class Exception
+
+AlertChannel <|.. HttpAlertChannel
+HttpAlertChannel <|-- SmsChannel
+HttpAlertChannel <|-- WhatsAppChannel
+AlertChannel <|.. LogChannel
+Exception <|-- AlertDeliveryException
+AlertChannel ..> AlertDeliveryException : throws
+AlertChannels o-- "*" AlertChannel
+NotificationRepository --> AlertOutbox : enqueue in the same transaction
+AlertOutbox --> AlertChannels : which channels
+AlertDispatcher --> AlertOutbox : due / mark
+AlertDispatcher --> AlertChannels : send
+SmsChannel ..> AlertProperties
+WhatsAppChannel ..> AlertProperties
+
+note bottom of AlertDispatcher
+  Runs every few seconds, outside the network lock.
+  Retryable failures back off 30 s, 1 min, 2 min...
+  up to maxAttempts; others fail at once.
+end note
+@enduml

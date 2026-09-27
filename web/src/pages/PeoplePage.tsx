@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, type Account, type NewAccount, type Role, type User } from "../api";
 import { SectionHead, errorText, useLoad, type SectionProps } from "../shared";
+import { AlertsPanel } from "../components/AlertsPanel";
 
 const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "Network administrator",
@@ -81,6 +82,7 @@ export function PeoplePage(props: SectionProps & { me: User }) {
                   <th>Role</th>
                   <th>Works at</th>
                   <th>Status</th>
+                  <th>Urgent alerts</th>
                   <th />
                 </tr>
               </thead>
@@ -102,6 +104,7 @@ export function PeoplePage(props: SectionProps & { me: User }) {
                         <span className="chip ok">active</span>
                       )}
                     </td>
+                    <td>{a.alertsEnabled && a.phone ? a.phone : <span className="muted">off</span>}</td>
                     <td className="row-actions">
                       <button className="btn ghost small" type="button" onClick={() => reset(a)}>
                         Reset password
@@ -118,6 +121,7 @@ export function PeoplePage(props: SectionProps & { me: User }) {
             </table>
           </div>
         )}
+        <AlertsPanel rev={rev} />
       </div>
     </section>
   );
@@ -137,6 +141,7 @@ function AddPerson({
   const [touchedUsername, setTouchedUsername] = useState(false);
   const [role, setRole] = useState<Role>("CENTRE_STAFF");
   const [facilityId, setFacilityId] = useState("");
+  const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
 
   const choices = facilities.filter((f) =>
@@ -162,6 +167,7 @@ function AddPerson({
           displayName,
           role,
           ...(role === "ADMIN" ? {} : { facilityId }),
+          ...(phone.trim() ? { phone } : {}),
         }),
       );
     } catch (err) {
@@ -227,6 +233,16 @@ function AddPerson({
             </select>
           </label>
         )}
+        <label>
+          Mobile for urgent alerts (optional)
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="98123 45678"
+            autoComplete="off"
+          />
+        </label>
         {role !== "ADMIN" && choices.length === 0 && (
           <p className="message error full">
             Add a {role === "HOSPITAL_STAFF" ? "hospital" : "blood centre"} on the Facilities page first.

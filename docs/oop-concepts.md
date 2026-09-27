@@ -22,6 +22,7 @@ module's `src/main/java/com/raktsetu/`.
 | `domain/interfaces/StockDataSource` | `persistence/DataLoader` | Loading from CSV is one implementation; the database is another. |
 | `persistence/Repository<T extends Identifiable>` | `CsvRepository<T>` | Generic repository: one class stores facilities, units or orders. |
 | `engine/strategy/RedistributionStrategy` | `NearestFirstStrategy`, `ExpiryFirstStrategy` | Strategy pattern: the admin picks a planning policy at run time. |
+| `server/alerts/AlertChannel` | `SmsChannel`, `WhatsAppChannel`, `LogChannel` | The dispatcher sends through "a channel"; adding a provider is one new class. `AlertChannels` receives every implementation Spring finds (a `List<AlertChannel>`) and picks the configured ones. |
 | `server/security/LoginAttemptPolicy` | `SlidingWindowAttemptPolicy` | `LoginGuard` holds two policies (per account, per address) behind the same interface; another policy could replace them without changing `LoginGuard`. |
 | Spring's `HealthIndicator`, Micrometer's `MeterBinder` | `server/monitoring/AuditChainHealthIndicator`, `NetworkMetrics` | Implementing a framework's interface is how you plug into it: Spring finds every `HealthIndicator` and adds it to `/actuator/health`. |
 
@@ -29,7 +30,8 @@ module's `src/main/java/com/raktsetu/`.
 
 | Pattern | Where |
 |---|---|
-| **Template Method** | `AbstractRedistributionStrategy.plan()` is `final` and fixes the algorithm; subclasses only supply `order()` and `choose()`. |
+| **Template Method** | `AbstractRedistributionStrategy.plan()` is `final` and fixes the algorithm; subclasses only supply `order()` and `choose()`. The same in `alerts/HttpAlertChannel.send()`: timeouts and error handling are shared, and SMS and WhatsApp only build their provider's request. |
+| **Transactional outbox** | `alerts/AlertOutbox` + `AlertDispatcher`: an alert is saved in the same database transaction as the change that caused it and sent afterwards, with retries and exponential back-off, so a rolled-back change never sends and a restart never loses one. |
 | **Strategy** | `RedistributionStrategy`, `LoginAttemptPolicy`. |
 | **Repository** | `Repository<T>`, `CsvRepository<T>`, and the database repositories in `server/db`. |
 | **Dependency injection** | Every server class receives its collaborators through its constructor (for example `LoginGuard(Clock, MeterRegistry)`); tests pass a fixed `Clock`. |
@@ -41,7 +43,8 @@ module's `src/main/java/com/raktsetu/`.
 A checked hierarchy for business rules: `RaktSetuException` → `InsufficientStockException`,
 `IncompatibleBloodException`, `UnitExpiredException`, `FacilityNotFoundException`, `InvalidDataException`.
 The web layer (`server/ApiErrors`) turns each into a clear JSON error and HTTP status. `TooManyAttemptsException`
-carries extra state (`retryAfter`), which becomes the `Retry-After` header.
+carries extra state (`retryAfter`), which becomes the `Retry-After` header, and `AlertDeliveryException` carries
+`retryable`, which decides whether the dispatcher tries again.
 
 ## Data structures and concurrency (from the performance work)
 

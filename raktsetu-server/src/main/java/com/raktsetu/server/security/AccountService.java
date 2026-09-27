@@ -2,6 +2,7 @@ package com.raktsetu.server.security;
 
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.NetworkService;
+import com.raktsetu.server.alerts.PhoneNumbers;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,7 @@ public class AccountService {
 
     /** An account as administrators see it (never the password hash). */
     public record UserView(String username, String displayName, Role role, String facilityId, boolean enabled,
-                           boolean mustChangePassword, LocalDate createdOn) {
+                           String phone, boolean alertsEnabled, boolean mustChangePassword, LocalDate createdOn) {
     }
 
     /** A new or reset account with its one-time password, shown once. */
@@ -33,7 +34,12 @@ public class AccountService {
     public record SetupInput(String username, String displayName, String password) {
     }
 
-    public record UserInput(String username, String displayName, String role, String facilityId) {
+    /** @param phone optional mobile number; if given, the person gets urgent alerts until they turn them off */
+    public record UserInput(String username, String displayName, String role, String facilityId, String phone) {
+    }
+
+    /** A person's own alert settings. */
+    public record ContactInput(String phone, Boolean alertsEnabled) {
     }
 
     public record PasswordInput(String currentPassword, String newPassword) {
@@ -106,9 +112,13 @@ public class AccountService {
                         ? "Hospital staff must belong to a hospital" : "Centre staff must belong to a blood centre");
             }
         }
+        String phone = input.phone() == null || input.phone().isBlank() ? null : PhoneNumbers.normalise(input.phone());
         String oneTime = Passwords.oneTime();
         users.insert(new AppUser(username, name, role, facilityId), encoder.encode(oneTime), true,
                 LocalDate.now(clock));
+        if (phone != null) {
+            users.setContact(username, phone, true);
+        }
         return new NewAccount(view(users.find(username).orElseThrow()), oneTime);
     }
 
@@ -150,6 +160,24 @@ public class AccountService {
         users.setPassword(username, encoder.encode(input.newPassword()), false);
     }
 
+    /**
+     * Sets someone's mobile number and whether they want urgent alerts. A blank number removes it (and turns alerts
+     * off); alerts cannot be on without a number.
+     */
+    public synchronized UserView updateContact(String username, ContactInput input) {
+        UserRepository.Account account = account(username);
+        if (input == null) {
+            throw new IllegalArgumentException("Phone and alert setting are required");
+        }
+        String phone = input.phone() == null || input.phone().isBlank() ? null : PhoneNumbers.normalise(input.phone());
+        boolean wanted = input.alertsEnabled() == null ? account.alertsEnabled() : input.alertsEnabled();
+        if (wanted && phone == null) {
+            throw new IllegalArgumentException("Add a mobile number to receive alerts");
+        }
+        users.setContact(account.user().username(), phone, wanted);
+        return view(users.find(account.user().username()).orElseThrow());
+    }
+
     public boolean mustChangePassword(String username) {
         return users.find(username).map(UserRepository.Account::mustChangePassword).orElse(false);
     }
@@ -178,7 +206,7 @@ public class AccountService {
 
     private static UserView view(UserRepository.Account a) {
         AppUser u = a.user();
-        return new UserView(u.username(), u.displayName(), u.role(), u.facilityId(), a.enabled(),
-                a.mustChangePassword(), a.createdOn());
+        return new UserView(u.username(), u.displayName(), u.role(), u.facilityId(), a.enabled(), a.phone(),
+                a.alertsEnabled(), a.mustChangePassword(), a.createdOn());
     }
 }
