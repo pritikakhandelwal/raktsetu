@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Summary } from "./api";
+import { ApiError, api, type Summary, type User } from "./api";
+import { Login } from "./Login";
 import { addDays } from "./format";
 import { Drop, errorText, useLoad } from "./shared";
 import { Hero } from "./sections/Hero";
@@ -19,7 +20,37 @@ const LINKS = [
   ["#audit", "Audit"],
 ] as const;
 
+const ROLE_LABELS: Record<User["role"], string> = {
+  ADMIN: "Network admin",
+  CENTRE_STAFF: "Centre staff",
+  HOSPITAL_STAFF: "Hospital staff",
+};
+
+/** Signs the user in first; the dashboard only loads for a signed-in user. */
 export function App() {
+  const [user, setUser] = useState<User | null>();
+
+  useEffect(() => {
+    api
+      .me()
+      .then(setUser)
+      .catch((e: unknown) => setUser(e instanceof ApiError && e.status === 401 ? null : undefined));
+  }, []);
+
+  async function signOut() {
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+    }
+  }
+
+  if (user === undefined) return <div className="loading">Loading RaktSetu…</div>;
+  if (user === null) return <Login onSignedIn={setUser} />;
+  return <Dashboard user={user} onSignOut={signOut} />;
+}
+
+function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const [rev, setRev] = useState(0);
   const [toast, setToast] = useState<{ message: string; ok: boolean }>();
   const changed = useCallback(() => setRev((r) => r + 1), []);
@@ -72,8 +103,16 @@ export function App() {
             <span>
               Today <strong>{summary.today}</strong>
             </span>
-            <button className="btn ghost small" type="button" onClick={nextDay}>
-              Next day
+            {user.role === "ADMIN" && (
+              <button className="btn ghost small" type="button" onClick={nextDay}>
+                Next day
+              </button>
+            )}
+            <span className="who" title={user.displayName}>
+              <strong>{user.username}</strong> · {ROLE_LABELS[user.role]}
+            </span>
+            <button className="btn ghost small" type="button" onClick={onSignOut}>
+              Sign out
             </button>
           </div>
         </div>

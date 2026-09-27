@@ -152,10 +152,31 @@ export class ApiError extends Error {
   }
 }
 
+export type Role = "ADMIN" | "CENTRE_STAFF" | "HOSPITAL_STAFF";
+
+export interface User {
+  username: string;
+  displayName: string;
+  role: Role;
+  facilityId: string | null;
+}
+
+/** The CSRF token Spring Security puts in the XSRF-TOKEN cookie; it must be echoed on every change. */
+function csrfToken(): string {
+  const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+  return match ? decodeURIComponent(match[1]!) : "";
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = init?.method ?? "GET";
   const response = await fetch(`/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(method === "GET" ? {} : { "X-XSRF-TOKEN": csrfToken() }),
+      ...init?.headers,
+    },
   });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
@@ -167,6 +188,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(response.status, message);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -174,6 +196,9 @@ const post = <T>(path: string, body?: unknown) =>
   call<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const api = {
+  me: () => call<User>("/auth/me"),
+  login: (username: string, password: string) => post<User>("/auth/login", { username, password }),
+  logout: () => post<void>("/auth/logout"),
   summary: () => call<Summary>("/summary"),
   facilities: () => call<Facility[]>("/facilities"),
   facilityStock: (id: string) => call<FacilityStock>(`/facilities/${encodeURIComponent(id)}/stock`),

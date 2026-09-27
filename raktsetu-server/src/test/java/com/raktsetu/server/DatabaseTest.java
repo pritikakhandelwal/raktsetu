@@ -46,7 +46,7 @@ class DatabaseTest {
     JdbcClient jdbc;
 
     private NetworkService restart() throws Exception {
-        return new NetworkService(new RaktSetuProperties(Path.of("unused"), LocalDate.of(2026, 10, 1), 42L),
+        return new NetworkService(new RaktSetuProperties(Path.of("unused"), LocalDate.of(2026, 10, 1), 42L, null),
                 networkRepo, auditRepo, state, tx);
     }
 

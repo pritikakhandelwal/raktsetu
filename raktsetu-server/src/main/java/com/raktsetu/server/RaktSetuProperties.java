@@ -8,12 +8,13 @@ import java.time.LocalDate;
 /**
  * Settings, from {@code application.properties} or the command line ({@code --raktsetu.today=2026-10-01}).
  *
- * @param dataDir folder holding the network's data files; a sample network is created there if it is empty
- * @param today   the date the app treats as today; the system date when not set
- * @param seed    seed for the sample network and the simulation
+ * @param dataDir      folder for the embedded database and the demo-accounts file
+ * @param today        the date the app treats as today; the system date when not set
+ * @param seed         seed for the sample network and the simulation
+ * @param demoPassword password for the demo accounts created on first start; random when not set
  */
 @ConfigurationProperties("raktsetu")
-public record RaktSetuProperties(Path dataDir, LocalDate today, Long seed) {
+public record RaktSetuProperties(Path dataDir, LocalDate today, Long seed, String demoPassword) {
 
     public RaktSetuProperties {
         dataDir = dataDir == null ? Path.of("raktsetu-data") : dataDir;
