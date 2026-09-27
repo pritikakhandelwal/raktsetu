@@ -64,7 +64,8 @@ import java.util.TreeMap;
  * <p>The engine works on an in-memory network; the database is the source of truth. Every change runs through
  * {@link #change}: the change's audit events are appended to the hash-chained audit log and applied to the tables in
  * one transaction. If writing fails, the in-memory network is reloaded from the database, so the two never drift
- * apart. Methods are synchronized because one network is shared by all users of this server.
+ * apart. One network is shared by all users of this server, so every method runs under {@link NetworkLock}: reads
+ * in parallel, changes one at a time.
  *
  * <p>"Today" is the real date in the network's time zone. When a new day starts (checked at midnight and on every
  * call), expired units are discarded and the day's reminders are sent.
@@ -95,18 +96,21 @@ public class NetworkService {
     private final RouteService routing;
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
+    private final AuditIntegrity integrity;
     private final Clock clock;
     private final CapturingAuditTrail capture = new CapturingAuditTrail();
     private final RedistributionEngine engine = RedistributionEngine.withDefaultStrategies();
     private BloodNetwork network;
     private RequestService requests;
     private TransferService transfers;
-    private LocalDate today;
+    private volatile LocalDate today;
+    private final NetworkLock lock = new NetworkLock();
 
     public NetworkService(NetworkRepository networkRepo, AuditRepository auditRepo, StateRepository state,
                           TransferRepository transferRepo, NotificationRepository notifications, RouteService routing,
-                          JdbcClient jdbc, TransactionTemplate tx, Clock clock) {
+                          JdbcClient jdbc, TransactionTemplate tx, Clock clock, AuditIntegrity integrity) {
         this.networkRepo = networkRepo;
+        this.integrity = integrity;
         this.auditRepo = auditRepo;
         this.state = state;
         this.transferRepo = transferRepo;
@@ -123,23 +127,25 @@ public class NetworkService {
 
     /** Runs just after midnight so expiry and reminders happen even if nobody is using the site. */
     @Scheduled(cron = "0 1 0 * * *", zone = "${raktsetu.time-zone:Asia/Kolkata}")
-    public synchronized void midnight() {
+    public void midnight() {
         newDayIfNeeded();
     }
 
     /** If the date has changed: discard expired units, then send the day's reminders (once per day). */
-    synchronized void newDayIfNeeded() {
-        LocalDate now = LocalDate.now(clock);
-        if (now.equals(today)) {
-            return;
+    void newDayIfNeeded() {
+        if (LocalDate.now(clock).equals(today)) {
+            return; // the usual case, decided without taking any lock
         }
-        today = now;
-        try {
+        lock.writeSafely(() -> {
+            LocalDate now = LocalDate.now(clock);
+            if (now.equals(today)) {
+                return null; // another thread rolled the day over first
+            }
+            today = now;
             change(() -> network.removeExpired(today));
-        } catch (RaktSetuException e) {
-            throw new IllegalStateException("Could not discard expired units", e);
-        }
-        dailyDigest();
+            dailyDigest();
+            return null;
+        });
     }
 
     /**
@@ -180,85 +186,95 @@ public class NetworkService {
 
     // ------------------------------------------------------------------ overview
 
-    public synchronized Summary summary() {
+    public Summary summary() {
         newDayIfNeeded();
-        int units = 0;
-        int urgent = 0;
-        for (Facility f : network.storingFacilities()) {
-            units += f.getInventory().totalUnits();
-            urgent += urgentUnits(f);
-        }
-        int atRisk = engine.risks(network, today).stream().mapToInt(r -> r.atRisk().size()).sum();
-        int hospitals = network.facilities().size() - network.storingFacilities().size();
-        return new Summary(today, network.storingFacilities().size(), hospitals, units, urgent, atRisk,
-                network.wastage().size(), transferRepo.countProposed(), auditRepo.verify().intact());
+        return lock.readSafely(() -> {
+            int units = 0;
+            int urgent = 0;
+            for (Facility f : network.storingFacilities()) {
+                units += f.getInventory().totalUnits();
+                urgent += urgentUnits(f);
+            }
+            int atRisk = engine.risks(network, today).stream().mapToInt(r -> r.atRisk().size()).sum();
+            int hospitals = network.facilities().size() - network.storingFacilities().size();
+            return new Summary(today, network.storingFacilities().size(), hospitals, units, urgent, atRisk,
+                    network.wastage().size(), transferRepo.countProposed(), integrity.current().intact());
+        });
     }
 
-    public synchronized List<FacilityView> facilities() {
+    public List<FacilityView> facilities() {
         newDayIfNeeded();
-        Map<String, Integer> atRisk = atRiskByFacility();
-        Map<String, Location> locations = networkRepo.locations();
-        return network.facilities().stream().map(f -> view(f, atRisk, locations)).toList();
+        return lock.readSafely(() -> {
+            Map<String, Integer> atRisk = atRiskByFacility();
+            Map<String, Location> locations = networkRepo.locations();
+            return network.facilities().stream().map(f -> view(f, atRisk, locations)).toList();
+        });
     }
 
-    public synchronized FacilityStock facilityStock(String id) throws RaktSetuException {
+    public FacilityStock facilityStock(String id) throws RaktSetuException {
         newDayIfNeeded();
-        Facility f = network.facility(id);
-        List<StockLine> lines = new ArrayList<>();
-        if (f.canStore()) {
-            for (ComponentType type : ComponentType.values()) {
-                for (BloodGroup group : BloodGroup.values()) {
-                    List<BloodComponent> units = f.getInventory().units(type, group);
-                    if (!units.isEmpty()) {
-                        BloodComponent first = units.get(0);
-                        long left = first.daysToExpiry(today);
-                        lines.add(new StockLine(type.name(), group.label(), units.size(), first.getExpiryDate(), left,
-                                left <= URGENT_DAYS));
+        return lock.read(() -> {
+            Facility f = network.facility(id);
+            List<StockLine> lines = new ArrayList<>();
+            if (f.canStore()) {
+                for (ComponentType type : ComponentType.values()) {
+                    for (BloodGroup group : BloodGroup.values()) {
+                        List<BloodComponent> units = f.getInventory().units(type, group);
+                        if (!units.isEmpty()) {
+                            BloodComponent first = units.get(0);
+                            long left = first.daysToExpiry(today);
+                            lines.add(new StockLine(type.name(), group.label(), units.size(), first.getExpiryDate(), left,
+                                    left <= URGENT_DAYS));
+                        }
                     }
                 }
             }
-        }
-        return new FacilityStock(view(f, atRiskByFacility(), networkRepo.locations()), lines);
+            return new FacilityStock(view(f, atRiskByFacility(), networkRepo.locations()), lines);
+        });
     }
 
-    public synchronized NetworkStock networkStock() {
+    public NetworkStock networkStock() {
         newDayIfNeeded();
-        List<String> groups = new ArrayList<>();
-        for (BloodGroup g : BloodGroup.values()) {
-            groups.add(g.label());
-        }
-        List<NetworkStockRow> rows = new ArrayList<>();
-        List<String> low = new ArrayList<>();
-        for (ComponentType type : ComponentType.values()) {
-            List<Integer> counts = new ArrayList<>();
-            int total = 0;
+        return lock.readSafely(() -> {
+            List<String> groups = new ArrayList<>();
             for (BloodGroup g : BloodGroup.values()) {
-                int n = network.totalUsable(type, g, today);
-                counts.add(n);
-                total += n;
-                double daily = 0;
-                for (Facility f : network.storingFacilities()) {
-                    daily += network.usage().averageDaily(f.getId(), type, g, today);
-                }
-                if (daily > 0 && n < daily * 2) {
-                    low.add(String.format(Locale.ROOT, "%s %s: %d units, about %.1f days of use", g, type, n,
-                            n / daily));
-                }
+                groups.add(g.label());
             }
-            rows.add(new NetworkStockRow(type.name(), counts, total));
-        }
-        return new NetworkStock(groups, rows, low);
+            List<NetworkStockRow> rows = new ArrayList<>();
+            List<String> low = new ArrayList<>();
+            for (ComponentType type : ComponentType.values()) {
+                List<Integer> counts = new ArrayList<>();
+                int total = 0;
+                for (BloodGroup g : BloodGroup.values()) {
+                    int n = network.totalUsable(type, g, today);
+                    counts.add(n);
+                    total += n;
+                    double daily = 0;
+                    for (Facility f : network.storingFacilities()) {
+                        daily += network.usage().averageDaily(f.getId(), type, g, today);
+                    }
+                    if (daily > 0 && n < daily * 2) {
+                        low.add(String.format(Locale.ROOT, "%s %s: %d units, about %.1f days of use", g, type, n,
+                                n / daily));
+                    }
+                }
+                rows.add(new NetworkStockRow(type.name(), counts, total));
+            }
+            return new NetworkStock(groups, rows, low);
+        });
     }
 
-    public synchronized WastageView wastage() {
+    public WastageView wastage() {
         newDayIfNeeded();
-        Map<String, Integer> byComponent = new TreeMap<>();
-        Map<String, Integer> byFacility = new TreeMap<>();
-        for (WastageRecord w : network.wastage()) {
-            byComponent.merge(w.component().name(), 1, Integer::sum);
-            byFacility.merge(w.facilityId(), 1, Integer::sum);
-        }
-        return new WastageView(network.wastage().size(), byComponent, byFacility);
+        return lock.readSafely(() -> {
+            Map<String, Integer> byComponent = new TreeMap<>();
+            Map<String, Integer> byFacility = new TreeMap<>();
+            for (WastageRecord w : network.wastage()) {
+                byComponent.merge(w.component().name(), 1, Integer::sum);
+                byFacility.merge(w.facilityId(), 1, Integer::sum);
+            }
+            return new WastageView(network.wastage().size(), byComponent, byFacility);
+        });
     }
 
     // ------------------------------------------------------------------ stock at a centre
@@ -267,27 +283,29 @@ public class NetworkService {
      * Records units received at a centre. With {@code unitId} (the bag's own donation number) exactly one unit is
      * added under that ID; otherwise RaktSetu assigns IDs.
      */
-    public synchronized AddedUnits addUnits(String facilityId, AddUnitsInput input) throws RaktSetuException {
+    public AddedUnits addUnits(String facilityId, AddUnitsInput input) throws RaktSetuException {
         newDayIfNeeded();
-        require(input, "request body");
-        ComponentType type = ComponentType.parse(input.component());
-        BloodGroup group = BloodGroup.parse(input.group());
-        LocalDate collected = input.collectedOn() == null ? today : input.collectedOn();
-        String unitId = input.unitId() == null ? "" : input.unitId().trim();
-        List<BloodComponent> added;
-        if (!unitId.isEmpty()) {
-            if (input.quantity() != null && input.quantity() != 1) {
-                throw new IllegalArgumentException("A donation number identifies one unit; log units one at a time");
+        return lock.write(() -> {
+            require(input, "request body");
+            ComponentType type = ComponentType.parse(input.component());
+            BloodGroup group = BloodGroup.parse(input.group());
+            LocalDate collected = input.collectedOn() == null ? today : input.collectedOn();
+            String unitId = input.unitId() == null ? "" : input.unitId().trim();
+            List<BloodComponent> added;
+            if (!unitId.isEmpty()) {
+                if (input.quantity() != null && input.quantity() != 1) {
+                    throw new IllegalArgumentException("A donation number identifies one unit; log units one at a time");
+                }
+                if (unitIdUsedBefore(unitId)) {
+                    throw new IllegalArgumentException("Unit " + unitId + " has already been recorded in RaktSetu");
+                }
+                added = List.of(change(() -> network.addUnit(facilityId, unitId, type, group, collected, today)));
+            } else {
+                int quantity = requirePositive(input.quantity(), "quantity", MAX_UNITS_PER_ENTRY);
+                added = change(() -> network.addUnits(facilityId, type, group, collected, quantity, today));
             }
-            if (unitIdUsedBefore(unitId)) {
-                throw new IllegalArgumentException("Unit " + unitId + " has already been recorded in RaktSetu");
-            }
-            added = List.of(change(() -> network.addUnit(facilityId, unitId, type, group, collected, today)));
-        } else {
-            int quantity = requirePositive(input.quantity(), "quantity", MAX_UNITS_PER_ENTRY);
-            added = change(() -> network.addUnits(facilityId, type, group, collected, quantity, today));
-        }
-        return new AddedUnits(added.stream().map(BloodComponent::getId).toList(), added.get(0).getExpiryDate());
+            return new AddedUnits(added.stream().map(BloodComponent::getId).toList(), added.get(0).getExpiryDate());
+        });
     }
 
     private boolean unitIdUsedBefore(String unitId) {
@@ -296,23 +314,27 @@ public class NetworkService {
                 .param("id", unitId).query(Integer.class).single() > 0;
     }
 
-    public synchronized FacilityView recordReport(String facilityId) throws RaktSetuException {
+    public FacilityView recordReport(String facilityId) throws RaktSetuException {
         newDayIfNeeded();
-        Facility f = change(() -> {
-            Facility facility = network.facility(facilityId);
-            facility.markReported(today);
-            return facility;
+        return lock.write(() -> {
+            Facility f = change(() -> {
+                Facility facility = network.facility(facilityId);
+                facility.markReported(today);
+                return facility;
+            });
+            return view(f, atRiskByFacility(), networkRepo.locations());
         });
-        return view(f, atRiskByFacility(), networkRepo.locations());
     }
 
-    public synchronized CompatibilityView compatibility(CompatibilityInput input) {
-        require(input, "request body");
-        ComponentType type = ComponentType.parse(input.component());
-        BloodGroup donor = BloodGroup.parse(input.donor());
-        BloodGroup recipient = BloodGroup.parse(input.recipient());
-        CompatibilityResult r = type.newUnit("CHECK", donor, LocalDate.now(clock)).compatibilityWith(recipient);
-        return new CompatibilityView(r.isAllowed(), r.level().name(), r.reason());
+    public CompatibilityView compatibility(CompatibilityInput input) {
+        return lock.readSafely(() -> {
+            require(input, "request body");
+            ComponentType type = ComponentType.parse(input.component());
+            BloodGroup donor = BloodGroup.parse(input.donor());
+            BloodGroup recipient = BloodGroup.parse(input.recipient());
+            CompatibilityResult r = type.newUnit("CHECK", donor, LocalDate.now(clock)).compatibilityWith(recipient);
+            return new CompatibilityView(r.isAllowed(), r.level().name(), r.reason());
+        });
     }
 
     // ------------------------------------------------------------------ facilities and routes (administrators)
@@ -321,71 +343,80 @@ public class NetworkService {
      * Adds a blood centre, storage centre or hospital at a location, and works out road routes to every other
      * facility.
      */
-    public synchronized FacilityView addFacility(FacilityInput input) {
+    public FacilityView addFacility(FacilityInput input) {
         newDayIfNeeded();
-        Validated v = validate(input);
-        String prefix = switch (v.type()) {
-            case HUB -> "HUB";
-            case STORAGE -> "SC";
-            case HOSPITAL -> "H";
-        };
-        List<RouteService.Place> others = places();
-        String[] id = new String[1];
-        tx.executeWithoutResult(s -> {
-            id[0] = networkRepo.nextFacilityId(prefix);
-            networkRepo.insertFacility(id[0], v.name(), v.type(), v.latitude(), v.longitude(), v.address());
-            networkRepo.replaceRoutes(id[0], legs(new RouteService.Place(id[0], v.latitude(), v.longitude()), others));
+        return lock.writeSafely(() -> {
+            Validated v = validate(input);
+            String prefix = switch (v.type()) {
+                case HUB -> "HUB";
+                case STORAGE -> "SC";
+                case HOSPITAL -> "H";
+            };
+            List<RouteService.Place> others = places();
+            String[] id = new String[1];
+            tx.executeWithoutResult(s -> {
+                id[0] = networkRepo.nextFacilityId(prefix);
+                networkRepo.insertFacility(id[0], v.name(), v.type(), v.latitude(), v.longitude(), v.address());
+                networkRepo.replaceRoutes(id[0], legs(new RouteService.Place(id[0], v.latitude(), v.longitude()), others));
+            });
+            reload();
+            return facilities().stream().filter(f -> f.id().equals(id[0])).findFirst().orElseThrow();
         });
-        reload();
-        return facilities().stream().filter(f -> f.id().equals(id[0])).findFirst().orElseThrow();
     }
 
     /** Changes a facility's name, address or location; a new location recalculates its routes. */
-    public synchronized FacilityView updateFacility(String id, FacilityInput input) throws RaktSetuException {
+    public FacilityView updateFacility(String id, FacilityInput input) throws RaktSetuException {
         newDayIfNeeded();
-        Facility existing = network.facility(id);
-        Validated v = validate(new FacilityInput(input == null ? null : input.name(), existing.getFacilityType().name(),
-                input == null ? null : input.latitude(), input == null ? null : input.longitude(),
-                input == null ? null : input.address()));
-        Location old = networkRepo.locations().get(id);
-        boolean moved = old == null || old.latitude() == null || old.latitude() != v.latitude()
-                || old.longitude() != v.longitude();
-        List<RouteService.Place> others = places().stream().filter(p -> !p.id().equals(id)).toList();
-        tx.executeWithoutResult(s -> {
-            networkRepo.updateFacility(id, v.name(), v.latitude(), v.longitude(), v.address());
-            if (moved) {
-                networkRepo.replaceRoutes(id, legs(new RouteService.Place(id, v.latitude(), v.longitude()), others));
-            }
+        return lock.write(() -> {
+            Facility existing = network.facility(id);
+            Validated v = validate(new FacilityInput(input == null ? null : input.name(), existing.getFacilityType().name(),
+                    input == null ? null : input.latitude(), input == null ? null : input.longitude(),
+                    input == null ? null : input.address()));
+            Location old = networkRepo.locations().get(id);
+            boolean moved = old == null || old.latitude() == null || old.latitude() != v.latitude()
+                    || old.longitude() != v.longitude();
+            List<RouteService.Place> others = places().stream().filter(p -> !p.id().equals(id)).toList();
+            tx.executeWithoutResult(s -> {
+                networkRepo.updateFacility(id, v.name(), v.latitude(), v.longitude(), v.address());
+                if (moved) {
+                    networkRepo.replaceRoutes(id, legs(new RouteService.Place(id, v.latitude(), v.longitude()), others));
+                }
+            });
+            reload();
+            return facilities().stream().filter(f -> f.id().equals(id)).findFirst().orElseThrow();
         });
-        reload();
-        return facilities().stream().filter(f -> f.id().equals(id)).findFirst().orElseThrow();
     }
 
-    public synchronized List<RouteView> routes(String id) throws RaktSetuException {
-        network.facility(id);
-        Map<String, String> names = new HashMap<>();
-        network.facilities().forEach(f -> names.put(f.getId(), f.getName()));
-        return networkRepo.routesFrom(id).stream()
-                .map(r -> new RouteView(r.toId(), names.getOrDefault(r.toId(), r.toId()), r.distanceKm(),
-                        r.travelMinutes(), r.source()))
-                .toList();
+    public List<RouteView> routes(String id) throws RaktSetuException {
+        return lock.read(() -> {
+            network.facility(id);
+            Map<String, String> names = new HashMap<>();
+            network.facilities().forEach(f -> names.put(f.getId(), f.getName()));
+            return networkRepo.routesFrom(id).stream()
+                    .map(r -> new RouteView(r.toId(), names.getOrDefault(r.toId(), r.toId()), r.distanceKm(),
+                            r.travelMinutes(), r.source()))
+                    .toList();
+        });
     }
 
     /** Corrects a route by hand, in both directions. */
-    public synchronized RouteView setRoute(String fromId, String toId, RouteInput input) throws RaktSetuException {
-        network.facility(fromId);
-        Facility to = network.facility(toId);
-        if (fromId.equals(toId)) {
-            throw new IllegalArgumentException("A route needs two different facilities");
-        }
-        int km = requirePositive(input == null ? null : input.distanceKm(), "distanceKm", 5000);
-        int minutes = requirePositive(input == null ? null : input.travelMinutes(), "travelMinutes", 6000);
-        tx.executeWithoutResult(s -> {
-            networkRepo.upsertRoute(new RouteRow(fromId, toId, km, minutes, "MANUAL"));
-            networkRepo.upsertRoute(new RouteRow(toId, fromId, km, minutes, "MANUAL"));
+    public RouteView setRoute(String fromId, String toId, RouteInput input) throws RaktSetuException {
+        newDayIfNeeded();
+        return lock.write(() -> {
+            network.facility(fromId);
+            Facility to = network.facility(toId);
+            if (fromId.equals(toId)) {
+                throw new IllegalArgumentException("A route needs two different facilities");
+            }
+            int km = requirePositive(input == null ? null : input.distanceKm(), "distanceKm", 5000);
+            int minutes = requirePositive(input == null ? null : input.travelMinutes(), "travelMinutes", 6000);
+            tx.executeWithoutResult(s -> {
+                networkRepo.upsertRoute(new RouteRow(fromId, toId, km, minutes, "MANUAL"));
+                networkRepo.upsertRoute(new RouteRow(toId, fromId, km, minutes, "MANUAL"));
+            });
+            reload();
+            return new RouteView(toId, to.getName(), km, minutes, "MANUAL");
         });
-        reload();
-        return new RouteView(toId, to.getName(), km, minutes, "MANUAL");
     }
 
     private record Validated(String name, FacilityType type, double latitude, double longitude, String address) {
@@ -428,40 +459,48 @@ public class NetworkService {
 
     // ------------------------------------------------------------------ risk and redistribution
 
-    public synchronized List<RiskView> risks() {
+    public List<RiskView> risks() {
         newDayIfNeeded();
-        return engine.risks(network, today).stream()
-                .map(r -> new RiskView(r.facility().getId(), r.facility().getName(), r.component().name(),
-                        r.group().label(), r.atRisk().size(), r.usableStock(), r.soonestDaysLeft(),
-                        r.averageDaily(), r.reason()))
-                .toList();
+        return lock.readSafely(() -> {
+            return engine.risks(network, today).stream()
+                    .map(r -> new RiskView(r.facility().getId(), r.facility().getName(), r.component().name(),
+                            r.group().label(), r.atRisk().size(), r.usableStock(), r.soonestDaysLeft(),
+                            r.averageDaily(), r.reason()))
+                    .toList();
+        });
     }
 
-    public synchronized List<StrategyView> strategies() {
-        return engine.strategies().stream().map(s -> new StrategyView(s.name(), s.description())).toList();
+    public List<StrategyView> strategies() {
+        return lock.readSafely(() -> {
+            return engine.strategies().stream().map(s -> new StrategyView(s.name(), s.description())).toList();
+        });
     }
 
-    public synchronized List<ComparisonView> compare() {
+    public List<ComparisonView> compare() {
         newDayIfNeeded();
-        List<ComparisonView> result = new ArrayList<>();
-        for (StrategyComparison c : engine.compare(network, today)) {
-            result.add(new ComparisonView(c.strategy(), c.orders().size(), c.unitsRescued(), c.stillAtRisk(),
-                    c.totalKm()));
-        }
-        return result;
+        return lock.readSafely(() -> {
+            List<ComparisonView> result = new ArrayList<>();
+            for (StrategyComparison c : engine.compare(network, today)) {
+                result.add(new ComparisonView(c.strategy(), c.orders().size(), c.unitsRescued(), c.stillAtRisk(),
+                        c.totalKm()));
+            }
+            return result;
+        });
     }
 
     // ------------------------------------------------------------------ audit
 
-    public synchronized AuditView audit(int limit) {
-        List<AuditEntry> entries = new ArrayList<>();
-        for (AuditRecord r : auditRepo.latest(limit)) {
-            var e = r.event();
-            entries.add(new AuditEntry(r.sequence(), e.date(), e.type().name(), e.facilityId(), e.counterparty(),
-                    e.component().name(), e.group().label(), e.unitIds().size(), e.note(), r.hash()));
-        }
-        AuditRepository.Verification v = auditRepo.verify();
-        return new AuditView(auditRepo.count(), v.intact(), v.message(), entries);
+    public AuditView audit(int limit) {
+        return lock.readSafely(() -> {
+            List<AuditEntry> entries = new ArrayList<>();
+            for (AuditRecord r : auditRepo.latest(limit)) {
+                var e = r.event();
+                entries.add(new AuditEntry(r.sequence(), e.date(), e.type().name(), e.facilityId(), e.counterparty(),
+                        e.component().name(), e.group().label(), e.unitIds().size(), e.note(), r.hash()));
+            }
+            AuditRepository.Verification v = integrity.full(); // the audit page always re-checks the whole chain
+            return new AuditView(auditRepo.count(), v.intact(), v.message(), entries);
+        });
     }
 
     // ------------------------------------------------------------------ helpers
@@ -477,6 +516,9 @@ public class NetworkService {
 
     /** As {@link #change(Command)}, also running {@code after} in the same transaction if the command succeeded. */
     <T> T change(Command<T> command, DbWrite<T> after) throws RaktSetuException {
+        if (!lock.holdsWrite()) {
+            throw new IllegalStateException("Changes to the network must hold the write lock");
+        }
         capture.clear();
         T result = null;
         RaktSetuException refused = null;
@@ -515,29 +557,40 @@ public class NetworkService {
      * Reloads from the database and processes the current day again (expiry and reminders). Used after data has been
      * loaded into the database directly, for example a bulk import.
      */
-    synchronized void reloadAndReprocessDay() {
-        reload();
-        today = null;
-        state.put(StateRepository.LAST_DIGEST, "");
+    void reloadAndReprocessDay() {
+        lock.writeSafely(() -> {
+            reload();
+            today = null;
+            state.put(StateRepository.LAST_DIGEST, "");
+            return null;
+        });
         newDayIfNeeded();
     }
 
     /** Rebuilds the in-memory network from the database. */
-    synchronized void reload() {
-        long serial = state.get(StateRepository.NEXT_UNIT_SERIAL).map(Long::parseLong).orElse(1L);
-        network = new BloodNetwork(networkRepo.load(serial), capture);
-        requests = new RequestService(network);
-        transfers = new TransferService(network);
+    void reload() {
+        lock.writeSafely(() -> {
+            long serial = state.get(StateRepository.NEXT_UNIT_SERIAL).map(Long::parseLong).orElse(1L);
+            network = new BloodNetwork(networkRepo.load(serial), capture);
+            requests = new RequestService(network);
+            transfers = new TransferService(network);
+            return null;
+        });
     }
 
-    // ------------------------------------------------------------------ for WorkflowService (same lock: this object)
+    // ------------------------------------------------------------------ for WorkflowService (same lock)
+
+    /** The lock guarding the network; {@link WorkflowService} uses it too. */
+    NetworkLock lock() {
+        return lock;
+    }
 
     BloodNetwork network() {
         return network;
     }
 
+    /** Today's date. Call {@link #newDayIfNeeded()} first, before taking the lock. */
     LocalDate today() {
-        newDayIfNeeded();
         return today;
     }
 

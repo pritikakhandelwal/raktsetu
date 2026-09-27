@@ -111,6 +111,11 @@ afresh with the setup page.
 
 The OOP concepts in the code, class by class, are in [docs/oop-concepts.md](docs/oop-concepts.md).
 
+**Performance** ([details](docs/benchmarks/README.md)): at 1,000 blood centres (300,000 units), serving an
+emergency request takes 0.13 ms and planning transfers for the whole network 0.67 s, after profiling cut these
+by 66× and 47×. The server handles about 430 requests per second with 200 simultaneous users on one laptop
+(p99 0.74 s, no errors), 4.4× more than before tuning. Benchmarks: `raktsetu-bench` (JMH and an HTTP load test).
+
 For front-end development with hot reload, run the server and then `npm run dev` in `web/`
 (http://localhost:5173 forwards `/api` to the server). `./mvnw verify -DskipFrontend` builds only the Java side.
 
@@ -170,6 +175,7 @@ strategies properly needs the larger experiments planned for Phase 4.
 | `raktsetu-engine` | Allocation, expiry risk, forecasting, data-freshness beliefs, redistribution strategies. |
 | `raktsetu-persistence` | CSV repositories, event store, hash-chained audit log. |
 | `raktsetu-sim` | Digital-twin simulator and experiment runner. |
+| `raktsetu-bench` | Performance: JMH engine benchmarks and an HTTP load test ([results](docs/benchmarks/README.md)). |
 | `raktsetu-cli` | Console application (the course deliverable). |
 | `raktsetu-server` | Spring Boot REST API; serves the web front end. |
 | `web/` | React + TypeScript front end (Vite). |

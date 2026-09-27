@@ -130,10 +130,11 @@ public final class RequestService {
 
     private List<Candidate> candidatesFor(Facility hospital, LocalDate today) {
         List<Candidate> list = new ArrayList<>();
-        for (Facility f : network.storingFacilities()) {
-            Optional<Route> route = network.route(f.getId(), hospital.getId());
+        // Only centres with a known route to this hospital; the route is taken centre-to-hospital as before.
+        for (BloodNetwork.Neighbour n : network.storingNeighbours(hospital.getId())) {
+            Optional<Route> route = network.route(n.facility().getId(), hospital.getId());
             if (route.isPresent() && route.get().travelMinutes() <= maxTravelMinutes) {
-                list.add(new Candidate(f, route.get()));
+                list.add(new Candidate(n.facility(), route.get()));
             }
         }
         list.sort(Comparator.comparing((Candidate c) -> Freshness.of(c.facility(), today) == Freshness.UNVERIFIED)

@@ -10,6 +10,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.stream.Collectors;
 
 /**
  * Finds units likely to expire unused.
@@ -44,10 +46,9 @@ public final class ExpiryRiskAnalyzer {
         for (Facility f : network.storingFacilities()) {
             for (ComponentType type : ComponentType.values()) {
                 for (BloodGroup group : BloodGroup.values()) {
-                    List<BloodComponent> usable = f.getInventory().units(type, group).stream()
-                            .filter(u -> !u.isExpired(today)).toList();
-                    if (usable.isEmpty()) {
-                        continue;
+                    SortedSet<BloodComponent> usable = f.getInventory().usable(type, group, today);
+                    if (usable.isEmpty() || usable.first().daysToExpiry(today) > lookaheadDays) {
+                        continue; // nothing here expires within the look-ahead, so nothing can be at risk
                     }
                     double avg = network.usage().averageDaily(f.getId(), type, group, today, usageWindowDays);
                     List<BloodComponent> atRisk = atRisk(usable, avg, today);
@@ -57,19 +58,31 @@ public final class ExpiryRiskAnalyzer {
                 }
             }
         }
-        items.sort(Comparator.comparingLong(RiskItem::soonestDaysLeft)
-                .thenComparing(Comparator.comparingInt((RiskItem r) -> r.atRisk().size()).reversed())
-                .thenComparing(r -> r.facility().getId()));
-        return items;
+        // Sort on keys worked out once per item rather than on every comparison.
+        record Keyed(RiskItem item, long soonest) {
+        }
+        return items.stream().map(r -> new Keyed(r, r.soonestDaysLeft()))
+                .sorted(Comparator.comparingLong(Keyed::soonest)
+                        .thenComparing(Comparator.comparingInt((Keyed k) -> k.item().atRisk().size()).reversed())
+                        .thenComparing(k -> k.item().facility().getId()))
+                .map(Keyed::item)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
-    /** Applies the rule to units already in first-expiry-first-out order. */
-    List<BloodComponent> atRisk(List<BloodComponent> fefo, double averageDaily, LocalDate today) {
+    /**
+     * Applies the rule to units already in first-expiry-first-out order. Stops at the first unit beyond the
+     * look-ahead: every later unit expires even later, so none of them can be reported.
+     */
+    List<BloodComponent> atRisk(Iterable<BloodComponent> fefo, double averageDaily, LocalDate today) {
         List<BloodComponent> result = new ArrayList<>();
-        for (int k = 1; k <= fefo.size(); k++) {
-            BloodComponent unit = fefo.get(k - 1);
+        int k = 0;
+        for (BloodComponent unit : fefo) {
+            k++;
             long daysLeft = unit.daysToExpiry(today);
-            if (daysLeft <= lookaheadDays && k > averageDaily * daysLeft) {
+            if (daysLeft > lookaheadDays) {
+                break;
+            }
+            if (k > averageDaily * daysLeft) {
                 result.add(unit);
             }
         }

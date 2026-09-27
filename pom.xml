@@ -19,6 +19,7 @@
         <module>raktsetu-sim</module>
         <module>raktsetu-cli</module>
         <module>raktsetu-server</module>
+        <module>raktsetu-bench</module>
     </modules>
 
     <properties>

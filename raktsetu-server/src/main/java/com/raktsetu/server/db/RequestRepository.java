@@ -8,8 +8,14 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Hospital requests and the units allocated to them. */
@@ -67,11 +73,29 @@ public class RequestRepository {
 
     public List<UnitRow> units(long requestId) {
         return jdbc.sql("select * from request_unit where request_id = ? order by source_id, unit_id").param(requestId)
-                .query((rs, n) -> new UnitRow(rs.getLong("request_id"), rs.getString("unit_id"),
-                        rs.getString("source_id"), ComponentType.valueOf(rs.getString("component")),
-                        BloodGroup.parse(rs.getString("blood_group")), rs.getObject("collected_on", LocalDate.class),
-                        rs.getObject("expires_on", LocalDate.class), rs.getBoolean("dispatched")))
-                .list();
+                .query(RequestRepository::unitRow).list();
+    }
+
+    /**
+     * The units of several requests in one query, by request ID (requests without units are absent). Listing 50
+     * requests this way costs 2 queries instead of 51.
+     */
+    public Map<Long, List<UnitRow>> units(Collection<Long> requestIds) {
+        if (requestIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<UnitRow>> byRequest = new HashMap<>();
+        jdbc.sql("select * from request_unit where request_id in (:ids) order by request_id, source_id, unit_id")
+                .param("ids", requestIds).query(RequestRepository::unitRow).list()
+                .forEach(u -> byRequest.computeIfAbsent(u.requestId(), k -> new ArrayList<>()).add(u));
+        return byRequest;
+    }
+
+    private static UnitRow unitRow(ResultSet rs, int n) throws SQLException {
+        return new UnitRow(rs.getLong("request_id"), rs.getString("unit_id"), rs.getString("source_id"),
+                ComponentType.valueOf(rs.getString("component")), BloodGroup.parse(rs.getString("blood_group")),
+                rs.getObject("collected_on", LocalDate.class), rs.getObject("expires_on", LocalDate.class),
+                rs.getBoolean("dispatched"));
     }
 
     /** Newest first. {@code hospitalId} and {@code sourceId} narrow the list; both null lists everything. */

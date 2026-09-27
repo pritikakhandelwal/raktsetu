@@ -69,15 +69,41 @@ public class AuditRepository {
 
     /** Recomputes the whole chain and reports the first row that does not match. */
     public Verification verify() {
-        List<AuditRecord> all = jdbc.sql("select * from audit_log order by seq").query((rs, n) -> new AuditRecord(
-                rs.getLong("seq"), new AuditEvent(rs.getObject("event_day", LocalDate.class),
-                AuditEventType.valueOf(rs.getString("type")), rs.getString("facility_id"),
-                rs.getString("counterparty"), ComponentType.valueOf(rs.getString("component")),
-                BloodGroup.parse(rs.getString("blood_group")), Arrays.asList(rs.getString("unit_ids").split(";")),
-                rs.getString("note")), rs.getString("prev_hash"), rs.getString("hash"))).list();
-        String prev = AuditHashing.GENESIS;
-        long expected = 1;
-        for (AuditRecord r : all) {
+        return check(rowsAfter(0), ChainPoint.START).verification();
+    }
+
+    /**
+     * Checks only the entries after {@code from}, continuing the chain from its hash. Cheap enough to run on every
+     * page load; entries at or before {@code from} were checked earlier and are re-checked by {@link #verify()}.
+     */
+    public Checked verifyAfter(ChainPoint from) {
+        return check(rowsAfter(from.sequence()), from);
+    }
+
+    /** The last entry of a verified stretch of the chain: its sequence number and hash. */
+    public record ChainPoint(long sequence, String hash) {
+        public static final ChainPoint START = new ChainPoint(0, AuditHashing.GENESIS);
+    }
+
+    /** A verification and, if intact, where the verified chain now ends. */
+    public record Checked(Verification verification, ChainPoint end) {
+    }
+
+    private List<AuditRecord> rowsAfter(long seq) {
+        return jdbc.sql("select * from audit_log where seq > ? order by seq").param(seq)
+                .query((rs, n) -> new AuditRecord(rs.getLong("seq"), new AuditEvent(
+                        rs.getObject("event_day", LocalDate.class), AuditEventType.valueOf(rs.getString("type")),
+                        rs.getString("facility_id"), rs.getString("counterparty"),
+                        ComponentType.valueOf(rs.getString("component")), BloodGroup.parse(rs.getString("blood_group")),
+                        Arrays.asList(rs.getString("unit_ids").split(";")), rs.getString("note")),
+                        rs.getString("prev_hash"), rs.getString("hash")))
+                .list();
+    }
+
+    private static Checked check(List<AuditRecord> rows, ChainPoint from) {
+        String prev = from.hash();
+        long expected = from.sequence() + 1;
+        for (AuditRecord r : rows) {
             String problem = null;
             if (r.sequence() != expected) {
                 problem = "is missing or out of order";
@@ -88,13 +114,15 @@ public class AuditRepository {
             }
             if (problem != null) {
                 String intact = expected == 1 ? "no earlier entries" : "entries 1-" + (expected - 1) + " are intact";
-                return new Verification(false, (int) expected - 1,
-                        "Audit log TAMPERED: entry " + expected + " " + problem + "; " + intact);
+                return new Checked(new Verification(false, (int) expected - 1,
+                        "Audit log TAMPERED: entry " + expected + " " + problem + "; " + intact), from);
             }
             prev = r.hash();
             expected++;
         }
-        int n = all.size();
-        return new Verification(true, n, "Audit log intact: " + n + " entr" + (n == 1 ? "y" : "ies") + " verified");
+        int n = (int) expected - 1;
+        return new Checked(new Verification(true, n,
+                "Audit log intact: " + n + " entr" + (n == 1 ? "y" : "ies") + " verified"),
+                new ChainPoint(n, prev));
     }
 }

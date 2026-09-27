@@ -6,6 +6,7 @@ hide empty members
 class BloodNetwork {
   +facility(id) : Facility
   +storingFacilities() : List<Facility>
+  +storingNeighbours(facilityId) : List<Neighbour>
   +route(from, to) : Optional<Route>
   +addUnits(facilityId, type, group, collectedOn, qty, today) : List<BloodComponent>
   +removeExpired(today) : List<WastageRecord>

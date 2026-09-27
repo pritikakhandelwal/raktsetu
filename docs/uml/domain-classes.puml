@@ -117,12 +117,14 @@ package model {
   class NetworkData <<record>>
 
   class Inventory {
-    -stock : EnumMap<ComponentType, EnumMap<BloodGroup, PriorityQueue<BloodComponent>>>
+    -stock : EnumMap<ComponentType, EnumMap<BloodGroup, TreeSet<BloodComponent>>>
+    -earliestExpiry : LocalDate
     +add(unit : BloodComponent)
     +issue(type, group, qty, today) : List<BloodComponent>
     +removeExpired(today) : List<BloodComponent>
     +take(unitId) : Optional<BloodComponent>
     +countUsable(type, group, today) : int
+    +usable(type, group, today) : SortedSet<BloodComponent>
   }
 }
 

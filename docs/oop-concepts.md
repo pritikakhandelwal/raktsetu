@@ -8,7 +8,7 @@ module's `src/main/java/com/raktsetu/`.
 | Concept | Where | What to say |
 |---|---|---|
 | **Abstraction** | `domain/model/BloodComponent` (abstract), `domain/model/Facility` (abstract) | A unit of blood is abstract: code works with "a component" and never needs to know if it is platelets or plasma. |
-| **Encapsulation** | `domain/model/Inventory`; `server/security/SlidingWindowAttemptPolicy` | Stock can only change through `Inventory`'s methods, which keep each component and group in a `PriorityQueue` ordered by expiry. The lockout's failure queues are private and guarded by `synchronized`; callers only ask "is this key locked?". |
+| **Encapsulation** | `domain/model/Inventory`; `server/security/SlidingWindowAttemptPolicy` | Stock can only change through `Inventory`'s methods, which keep each component and group in a `TreeSet` ordered by expiry. The lockout's failure queues are private and guarded by `synchronized`; callers only ask "is this key locked?". |
 | **Inheritance** | `WholeBlood`, `RedCellConcentrate`, `Platelets`, `FreshFrozenPlasma` extend `BloodComponent`; `HubBloodCentre`, `StorageCentre`, `Hospital` extend `Facility`; all exceptions extend `RaktSetuException` | Shared state (ID, group, dates) lives once in the parent class. |
 | **Polymorphism** | `BloodComponent.getShelfLifeDays()`, `getStorageCondition()`, `Transfusable`; `Facility.canStore()`, `canCollect()` | The expiry calculation calls `getShelfLifeDays()` without knowing the type: 5 days for platelets, 42 for red cells, 365 for plasma. Hospitals answer `canStore() == false`. |
 
@@ -43,15 +43,30 @@ A checked hierarchy for business rules: `RaktSetuException` → `InsufficientSto
 The web layer (`server/ApiErrors`) turns each into a clear JSON error and HTTP status. `TooManyAttemptsException`
 carries extra state (`retryAfter`), which becomes the `Retry-After` header.
 
+## Data structures and concurrency (from the performance work)
+
+| Idea | Where | What to say |
+|---|---|---|
+| **Choosing a data structure** | `domain/model/Inventory`: `TreeSet` (red-black tree) instead of `PriorityQueue` (binary heap) | Both add and take the soonest-expiring unit in O(log n); only the tree can be read in order without copying and sorting, and remove any unit in O(log n) instead of O(n). |
+| **Memoisation** | `BloodComponent.getExpiryDate()` | Worked out on first use, then remembered; safe without locks because `LocalDate` is immutable. |
+| **Precomputed index** | `engine/BloodNetwork.storingNeighbours` | Built once from the route table, so a search looks at nearby centres, not the whole network. |
+| **Records as map keys** | `AbstractRedistributionStrategy.Slot` | `equals`/`hashCode` come free with a record, replacing string keys built by concatenation. |
+| **Readers-writer lock** | `server/NetworkLock` (wraps `ReentrantReadWriteLock`) | Encapsulation: callers say "read" or "write" and pass a lambda; how the lock works is hidden, and it cannot be left locked by mistake (`try/finally` inside). |
+| **Incremental verification** | `server/AuditIntegrity` | Remembers where the verified hash chain ends and checks only new entries. |
+| **Batch loading (avoiding N+1 queries)** | `server/db/RequestRepository.units(Collection)` | One `IN (...)` query instead of one query per request. |
+
+Measured results are in [`benchmarks/`](benchmarks/README.md).
+
 ## Other Java features
 
 - **Generics with bounds:** `Repository<T extends Identifiable>`, `CsvMapper<T>`.
-- **Collections:** `EnumMap` and `PriorityQueue` (stock by expiry in `Inventory`), `ArrayDeque` (the sliding
+- **Collections:** `EnumMap` and `TreeSet` (stock by expiry in `Inventory`), `ArrayDeque` (the sliding
   window), `ConcurrentHashMap` (thread-safe lockout).
 - **Records** for immutable values: `Route`, `BloodRequest`, `AuditEvent`, `RiskItem`.
 - **Enums with behaviour:** `BloodGroup`, `ComponentType`, `Compatibility`.
 - **Streams and lambdas:** risk analysis and planning.
-- **Concurrency:** `synchronized` services, `volatile` snapshot, scheduled jobs (`@Scheduled`).
+- **Concurrency:** a readers-writer lock around the shared network, `volatile` fields, virtual threads in the
+  load test, scheduled jobs (`@Scheduled`).
 - **File I/O:** CSV persistence and the hash-chained audit file (`persistence`).
 - **Hashing:** SHA-256 audit chain (`persistence/AuditHashing`).
 
