@@ -20,7 +20,7 @@ production-quality system. The full plan is in
 | 0 Foundations | Repository, CI, domain model, compatibility rules, design doc, UML v1 | Done |
 | 1 Course core (V1) | 16-option console app, persistence, allocation, strategies, simulator | **Done** |
 | 2–4 Research | Digital twin, forecasting, stale-data-aware optimiser, experiments, paper | Planned |
-| 5 System (V3) | Spring Boot server, event store, REST/FHIR API, dashboard | **Started**: REST API and web front end |
+| 5 System (V3) | Spring Boot server, database, sign-in, workflows, notifications, dashboard | **Working product** (FHIR API, monitoring and load tests still to do) |
 
 ## Quick start
 
@@ -47,38 +47,64 @@ java -jar raktsetu-cli/target/raktsetu.jar --today 2026-10-01
 On first run the app creates a **synthetic sample network** around Pune (1 hub, 4 storage centres, 6 hospitals, about
 350 units, 14 days of usage history), dated relative to "today" so it never goes stale.
 
-## Web app
+## The web app (the full product)
 
-The same engine also runs as a web app: a Spring Boot REST API (`raktsetu-server`) serving a single-page React front
-end (`web/`) in a black, cream and coral-red style with heavy condensed headlines. Maven builds the front end too
-(it downloads its own Node.js), so one command produces one JAR:
+RaktSetu runs as a multi-user web app: a Spring Boot server with a database, and a React front end for three kinds
+of user. **One command, nothing to install but Java 21+:**
 
 ```bash
-./mvnw package -DskipTests
-./run-web.sh --raktsetu.today=2026-10-01      # Windows: run-web.bat
+./mvnw package -DskipTests        # once: builds the Java code and the front end (Maven fetches its own Node.js)
+./run-web.sh                      # Windows: run-web.bat
 ```
 
-Then open http://localhost:8080. Sections: at-risk units, emergency request and compatibility check, the network and
-each centre's shelves, transfer plans with approve and reject, the simulation, and the audit log with its hash-chain
-seal. "Next day" in the header moves the date forward. Every change is saved to `raktsetu-data/`.
+Open http://localhost:8080. On first start the server creates the sample network in an embedded database
+(`raktsetu-data/`) and a set of demo accounts. **The shared demo password is in `raktsetu-data/demo-accounts.txt`**
+(random unless you set `--raktsetu.demo-password=...`).
 
-For front-end development with hot reload, run the server as above and then `npm run dev` in `web/`
-(http://localhost:5173 forwards `/api` to the server). `./mvnw verify -DskipFrontend` builds the Java side without
-Node.
+| Account | Role | What they do |
+|---|---|---|
+| `admin` | Network administrator | Sees the whole network; plans and approves transfers; runs the simulation; moves the demo date ("Next day") |
+| `hub01`, `sc01` ... `sc04` | Centre staff | Log collections, report daily stock, dispatch requests, receive transfers, discard damaged units |
+| `h01` ... `h06` | Hospital staff | Request blood for their hospital, cancel before dispatch, confirm receipt, check compatibility |
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/summary` | Headline numbers |
-| `GET /api/facilities`, `GET /api/facilities/{id}/stock` | Centres, hospitals and shelves |
-| `POST /api/facilities/{id}/units`, `POST /api/facilities/{id}/report` | Add units; record a stock report |
-| `GET /api/stock` | Network-wide stock and groups running low |
-| `POST /api/requests`, `POST /api/compatibility` | Blood requests and compatibility checks |
-| `GET /api/risks`, `GET /api/strategies`, `GET /api/strategies/compare` | Risk check and strategies |
-| `POST /api/plans`, `GET /api/transfers`, `POST /api/transfers/{id}/approve` or `/reject` | Transfer plans |
-| `GET /api/audit`, `POST /api/simulations`, `GET /api/wastage`, `POST /api/date` | Audit, simulation, wastage, date |
+**How a request flows:** a hospital raises it → units are reserved immediately from the nearest compatible centres
+(soonest-expiring first) → each centre is notified and dispatches → the hospital confirms receipt. Cancelling before
+dispatch puts the units back on the shelf. A request the network cannot meet is recorded and administrators are told.
 
-Errors come back as `{"error": ..., "message": ...}`: 400 for bad input, 404 for an unknown facility, 409 for a refused
-operation such as not enough stock.
+**How a transfer flows:** the admin generates a plan (Nearest-First or Expiry-First) → approves or rejects each
+transfer → stock moves and both centres are notified → the destination confirms it arrived.
+
+**Notifications** (the bell) cover requests to dispatch, dispatches, cancellations, unmet requests, transfers, and a
+daily reminder of stock expiring within two days and overdue stock reports.
+
+**With PostgreSQL** instead of the embedded database: `docker compose up --build` (or run the JAR with
+`--spring.profiles.active=postgres` and `RAKTSETU_DB_URL`, `RAKTSETU_DB_USER`, `RAKTSETU_DB_PASSWORD`).
+
+Options: `--raktsetu.today=2026-10-01` fixes the date for a demo; `--raktsetu.data-dir=...` chooses where the
+embedded database lives; `--server.port=...` changes the port. Delete the data folder to start afresh.
+
+For front-end development with hot reload, run the server and then `npm run dev` in `web/`
+(http://localhost:5173 forwards `/api` to the server). `./mvnw verify -DskipFrontend` builds only the Java side.
+
+### API
+
+All endpoints need a signed-in session except `POST /api/auth/login`; changes need the `X-XSRF-TOKEN` header
+(the front end sends it from the `XSRF-TOKEN` cookie).
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | Anyone | Sign in and out |
+| `GET /api/summary`, `/facilities`, `/facilities/{id}/stock`, `/stock`, `/risks`, `/audit`, `/wastage` | Signed in | Views |
+| `POST /api/facilities/{id}/units`, `/report`, `/units/{unitId}/discard` | That centre, admin | Stock changes |
+| `GET/POST /api/requests`; `POST /api/requests/{id}/dispatch`, `/receive`, `/cancel` | By role | Request workflow |
+| `POST /api/plans`; `GET /api/transfers`; `POST /api/transfers/{id}/approve`, `/reject` | Admin | Transfer plans |
+| `POST /api/transfers/{id}/receive` | Destination centre | Confirm arrival |
+| `GET /api/notifications`; `POST /api/notifications/{id}/read`, `/read-all` | Signed in | Notifications |
+| `POST /api/compatibility`, `GET /api/strategies`, `/strategies/compare` | Signed in | Tools |
+| `POST /api/simulations`, `POST /api/date`, `GET /api/users` | Admin | Simulation, demo date, accounts |
+
+Errors come back as `{"error": ..., "message": ...}`: 400 bad input, 401 not signed in, 403 not allowed for this
+account, 404 unknown facility, 409 refused (for example not enough stock).
 
 ## Demo in five minutes
 

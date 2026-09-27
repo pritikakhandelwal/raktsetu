@@ -3,11 +3,12 @@ import { api, COMPONENTS, GROUPS, type BloodRequest, type Compatibility, type Co
 import { componentLabel, daysLeft, plural } from "../format";
 import { SectionHead, errorText, useLoad, type SectionProps } from "../shared";
 
-export function RequestSection({ rev, changed, notify }: SectionProps) {
+/** The request form. Hospital staff always request for their own hospital ({@code fixedHospital}). */
+export function RequestSection({ rev, changed, notify, fixedHospital }: SectionProps & { fixedHospital?: string }) {
   const { data: facilities } = useLoad(api.facilities, [rev]);
   const hospitals = facilities?.filter((f) => f.type === "HOSPITAL") ?? [];
 
-  const [hospitalId, setHospitalId] = useState("H01");
+  const [hospitalId, setHospitalId] = useState(fixedHospital ?? "H01");
   const [component, setComponent] = useState<Component>("RED_CELLS");
   const [group, setGroup] = useState("O-");
   const [quantity, setQuantity] = useState(2);
@@ -47,7 +48,11 @@ export function RequestSection({ rev, changed, notify }: SectionProps) {
             <div className="form">
               <label>
                 Hospital
-                <select value={hospitalId} onChange={(e) => setHospitalId(e.target.value)}>
+                <select
+                  value={hospitalId}
+                  onChange={(e) => setHospitalId(e.target.value)}
+                  disabled={fixedHospital !== undefined}
+                >
                   {hospitals.map((h) => (
                     <option key={h.id} value={h.id}>
                       {h.id} · {h.name.replace(" (sample)", "")}

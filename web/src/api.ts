@@ -44,6 +44,12 @@ export interface FacilityStock {
   lines: StockLine[];
 }
 
+export interface NetworkStock {
+  groups: string[];
+  rows: { component: Component; counts: number[]; total: number }[];
+  low: string[];
+}
+
 /** The units one centre supplies for a request. */
 export interface RequestPart {
   sourceId: string;
@@ -196,6 +202,10 @@ function csrfToken(): string {
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? "GET";
+  if (method !== "GET" && !csrfToken()) {
+    // Signing out clears the token cookie; any request makes the server issue a fresh one.
+    await fetch("/api/auth/me", { credentials: "same-origin" });
+  }
   const response = await fetch(`/api${path}`, {
     ...init,
     credentials: "same-origin",
@@ -228,6 +238,7 @@ export const api = {
   logout: () => post<void>("/auth/logout"),
   summary: () => call<Summary>("/summary"),
   facilities: () => call<Facility[]>("/facilities"),
+  networkStock: () => call<NetworkStock>("/stock"),
   facilityStock: (id: string) => call<FacilityStock>(`/facilities/${encodeURIComponent(id)}/stock`),
   recordReport: (id: string) => post<Facility>(`/facilities/${encodeURIComponent(id)}/report`),
   request: (body: { hospitalId: string; component: Component; group: string; quantity: number; urgency: string }) =>

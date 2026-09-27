@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type Summary, type User } from "./api";
 import { Login } from "./Login";
 import { addDays } from "./format";
-import { Drop, errorText, useLoad } from "./shared";
+import { Drop, SectionHead, errorText, useLoad, type SectionProps } from "./shared";
+import { NotificationsBell } from "./components/NotificationsBell";
+import { RequestBoard } from "./components/RequestBoard";
 import { Hero } from "./sections/Hero";
 import { RiskSection } from "./sections/RiskSection";
 import { RequestSection } from "./sections/RequestSection";
@@ -10,15 +12,30 @@ import { NetworkSection } from "./sections/NetworkSection";
 import { TransfersSection } from "./sections/TransfersSection";
 import { SimulationSection } from "./sections/SimulationSection";
 import { AuditSection } from "./sections/AuditSection";
+import { CentreView } from "./views/CentreView";
+import { HospitalView } from "./views/HospitalView";
 
-const LINKS = [
-  ["#risk", "At risk"],
-  ["#request", "Request"],
-  ["#network", "Network"],
-  ["#transfers", "Transfers"],
-  ["#simulation", "Simulation"],
-  ["#audit", "Audit"],
-] as const;
+const LINKS: Record<User["role"], [string, string][]> = {
+  ADMIN: [
+    ["#risk", "At risk"],
+    ["#requests", "Requests"],
+    ["#network", "Network"],
+    ["#transfers", "Transfers"],
+    ["#simulation", "Simulation"],
+    ["#audit", "Audit"],
+  ],
+  CENTRE_STAFF: [
+    ["#dispatch", "To dispatch"],
+    ["#transfers", "Transfers"],
+    ["#shelves", "Shelves"],
+    ["#risk", "At risk"],
+  ],
+  HOSPITAL_STAFF: [
+    ["#request", "Request blood"],
+    ["#my-requests", "My requests"],
+    ["#availability", "Availability"],
+  ],
+};
 
 const ROLE_LABELS: Record<User["role"], string> = {
   ADMIN: "Network admin",
@@ -26,7 +43,7 @@ const ROLE_LABELS: Record<User["role"], string> = {
   HOSPITAL_STAFF: "Hospital staff",
 };
 
-/** Signs the user in first; the dashboard only loads for a signed-in user. */
+/** Signs the user in first; then shows the screens for their role. */
 export function App() {
   const [user, setUser] = useState<User | null>();
 
@@ -47,10 +64,10 @@ export function App() {
 
   if (user === undefined) return <div className="loading">Loading RaktSetu…</div>;
   if (user === null) return <Login onSignedIn={setUser} />;
-  return <Dashboard user={user} onSignOut={signOut} />;
+  return <Shell user={user} onSignOut={signOut} />;
 }
 
-function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
+function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const [rev, setRev] = useState(0);
   const [toast, setToast] = useState<{ message: string; ok: boolean }>();
   const changed = useCallback(() => setRev((r) => r + 1), []);
@@ -77,7 +94,7 @@ function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   if (!summary) {
     return <div className="loading">{error || "Loading RaktSetu…"}</div>;
   }
-  const props = { rev, changed, notify };
+  const props: SectionProps = { rev, changed, notify };
 
   return (
     <>
@@ -92,7 +109,7 @@ function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
           </a>
           <nav aria-label="Sections">
             <ul className="nav-links">
-              {LINKS.map(([href, label]) => (
+              {LINKS[user.role].map(([href, label]) => (
                 <li key={href}>
                   <a href={href}>{label}</a>
                 </li>
@@ -108,6 +125,7 @@ function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
                 Next day
               </button>
             )}
+            <NotificationsBell rev={rev} notify={notify} />
             <span className="who" title={user.displayName}>
               <strong>{user.username}</strong> · {ROLE_LABELS[user.role]}
             </span>
@@ -119,13 +137,30 @@ function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
       </header>
 
       <main id="main">
-        <Hero summary={summary} />
-        <RiskSection {...props} />
-        <RequestSection {...props} />
-        <NetworkSection {...props} />
-        <TransfersSection {...props} />
-        <SimulationSection {...props} today={summary.today} />
-        <AuditSection {...props} />
+        {user.role === "ADMIN" && (
+          <>
+            <Hero summary={summary} />
+            <RiskSection {...props} />
+            <RequestSection {...props} />
+            <section id="requests" className="section cream on-light" aria-labelledby="requests-title">
+              <div className="wrap">
+                <SectionHead
+                  id="requests-title"
+                  title="Requests"
+                  red
+                  note="Every request in the network: reserved, on its way, received, cancelled or unmet."
+                />
+                <RequestBoard {...props} user={user} />
+              </div>
+            </section>
+            <NetworkSection {...props} />
+            <TransfersSection {...props} />
+            <SimulationSection {...props} today={summary.today} />
+            <AuditSection {...props} />
+          </>
+        )}
+        {user.role === "CENTRE_STAFF" && <CentreView {...props} user={user} today={summary.today} />}
+        {user.role === "HOSPITAL_STAFF" && <HospitalView {...props} user={user} />}
       </main>
 
       <footer className="footer">
@@ -135,12 +170,12 @@ function Dashboard({ user, onSignOut }: { user: User; onSignOut: () => void }) {
               <Drop />
               RaktSetu
             </div>
-            <p>Expiry-aware blood redistribution network. Decision support: every transfer needs staff approval.</p>
+            <p>Expiry-aware blood redistribution network. Decision support: every transfer needs approval.</p>
           </div>
           <p>
-            Sample network and simulated data for demonstration.
+            Signed in as {user.displayName}.
             <br />
-            Shelf lives and rules to be confirmed against NACO/NBTC standards.
+            Sample network and simulated data for demonstration.
           </p>
         </div>
       </footer>
