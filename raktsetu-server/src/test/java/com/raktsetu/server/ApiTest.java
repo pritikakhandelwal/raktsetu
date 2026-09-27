@@ -51,6 +51,7 @@ class ApiTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("raktsetu.data-dir", DATA::toString);
+        TestDatabase.register(registry, "apitest");
         registry.add("raktsetu.today", () -> "2026-10-01");
         registry.add("raktsetu.seed", () -> "42");
     }
@@ -188,10 +189,17 @@ class ApiTest {
         mvc.perform(get("/api/transfers")).andExpect(jsonPath("$", hasSize(0)));
     }
 
+    @Autowired
+    org.springframework.jdbc.core.simple.JdbcClient jdbc;
+
     @Test
     @Order(7)
-    void everyChangeWasSavedToDisk() {
-        org.assertj.core.api.Assertions.assertThat(DATA.resolve("units.csv")).exists();
-        org.assertj.core.api.Assertions.assertThat(DATA.resolve(NetworkService.AUDIT_FILE)).exists();
+    void everyChangeWasWrittenToTheDatabase() {
+        int units = jdbc.sql("select count(*) from unit").query(Integer.class).single();
+        int audit = jdbc.sql("select count(*) from audit_log").query(Integer.class).single();
+        String today = jdbc.sql("select state_value from app_state where state_key = 'today'").query(String.class).single();
+        org.assertj.core.api.Assertions.assertThat(units).isPositive();
+        org.assertj.core.api.Assertions.assertThat(audit).isGreaterThan(3);
+        org.assertj.core.api.Assertions.assertThat(today).isEqualTo("2026-10-03");
     }
 }

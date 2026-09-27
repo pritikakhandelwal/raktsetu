@@ -13,12 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
@@ -30,7 +27,7 @@ import java.util.Objects;
 public final class AuditLogger implements AuditTrail {
 
     /** The "previous hash" of the first entry. */
-    public static final String GENESIS = "0".repeat(64);
+    public static final String GENESIS = AuditHashing.GENESIS;
 
     private static final List<String> HEADER = List.of("seq", "date", "type", "facility_id", "counterparty",
             "component", "blood_group", "unit_ids", "note", "prev_hash", "hash");
@@ -76,8 +73,8 @@ public final class AuditLogger implements AuditTrail {
     @Override
     public synchronized void record(AuditEvent event) {
         long sequence = lastSequence + 1;
-        List<String> fields = fieldsOf(sequence, event, lastHash);
-        String hash = sha256(Csv.formatLine(fields));
+        List<String> fields = AuditHashing.fields(sequence, event, lastHash);
+        String hash = AuditHashing.hash(fields);
         List<String> row = new ArrayList<>(fields);
         row.add(hash);
         try {
@@ -132,7 +129,7 @@ public final class AuditLogger implements AuditTrail {
             if (!f.get(9).equals(expectedPrev)) {
                 return broken(expectedSeq, "does not link to the previous entry");
             }
-            String actual = sha256(Csv.formatLine(f.subList(0, FIELDS_BEFORE_HASH)));
+            String actual = AuditHashing.hash(f.subList(0, FIELDS_BEFORE_HASH));
             if (!actual.equals(f.get(FIELDS_BEFORE_HASH))) {
                 return broken(expectedSeq, "was modified after it was written");
             }
@@ -166,20 +163,5 @@ public final class AuditLogger implements AuditTrail {
             }
         }
         return data;
-    }
-
-    private static List<String> fieldsOf(long sequence, AuditEvent e, String prevHash) {
-        return List.of(String.valueOf(sequence), e.date().toString(), e.type().name(), e.facilityId(),
-                e.counterparty(), e.component().name(), e.group().label(), String.join(";", e.unitIds()), e.note(),
-                prevHash);
-    }
-
-    static String sha256(String text) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is always available in the JDK", e);
-        }
     }
 }

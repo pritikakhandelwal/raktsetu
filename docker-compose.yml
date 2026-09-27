@@ -1,0 +1,29 @@
+# Runs RaktSetu with PostgreSQL:  docker compose up --build   then open http://localhost:8080
+# Without Docker, use run-web.bat / run-web.sh instead (embedded database, nothing to install but Java).
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: raktsetu
+      POSTGRES_USER: raktsetu
+      POSTGRES_PASSWORD: raktsetu
+    volumes:
+      - raktsetu-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raktsetu"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      RAKTSETU_DB_URL: jdbc:postgresql://db:5432/raktsetu
+      RAKTSETU_DB_USER: raktsetu
+      RAKTSETU_DB_PASSWORD: raktsetu
+    ports:
+      - "8080:8080"
+volumes:
+  raktsetu-db:

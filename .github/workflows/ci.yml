@@ -37,3 +37,29 @@ jobs:
         with:
           name: coverage
           path: '**/target/site/jacoco/'
+
+  postgres:
+    name: Server tests on PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: raktsetu
+          POSTGRES_USER: raktsetu
+          POSTGRES_PASSWORD: raktsetu
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U raktsetu"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      RAKTSETU_TEST_DB_URL: jdbc:postgresql://localhost:5432/raktsetu
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run the server tests against PostgreSQL
+        run: ./mvnw -B -ntp -pl raktsetu-server -am verify -DskipFrontend
