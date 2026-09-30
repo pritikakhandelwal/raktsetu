@@ -1,6 +1,7 @@
 package com.raktsetu.engine.strategy;
 
 import com.raktsetu.domain.model.BloodComponent;
+import com.raktsetu.engine.forecast.DemandForecaster;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -10,6 +11,13 @@ import java.util.List;
 public final class NearestFirstStrategy extends AbstractRedistributionStrategy {
 
     public static final String NAME = "nearest-first";
+
+    public NearestFirstStrategy() {
+    }
+
+    public NearestFirstStrategy(DemandForecaster forecaster) {
+        super(forecaster);
+    }
 
     @Override
     public String name() {

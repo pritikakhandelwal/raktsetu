@@ -4,6 +4,7 @@ import com.raktsetu.domain.model.BloodGroup;
 import com.raktsetu.domain.model.ComponentType;
 import com.raktsetu.domain.model.TransferOrder;
 import com.raktsetu.engine.BloodNetwork;
+import com.raktsetu.engine.forecast.DemandForecaster;
 import com.raktsetu.engine.strategy.RedistributionEngine;
 
 import java.time.LocalDate;
@@ -39,12 +40,21 @@ public interface TwinPolicy {
 
     /** P1/P2: one of the engine's proactive strategies (nearest-first, expiry-first), run on the observed network. */
     static TwinPolicy strategy(String strategyName) {
-        RedistributionEngine engine = RedistributionEngine.withDefaultStrategies();
+        return strategy(strategyName, RedistributionEngine.withDefaultStrategies(), strategyName);
+    }
+
+    /** A strategy whose risk check and planner use {@code forecaster} to predict demand. */
+    static TwinPolicy strategy(String strategyName, DemandForecaster forecaster) {
+        return strategy(strategyName, RedistributionEngine.withForecaster(forecaster),
+                strategyName + "/" + forecaster.name());
+    }
+
+    private static TwinPolicy strategy(String strategyName, RedistributionEngine engine, String name) {
         engine.strategy(strategyName); // fail fast on an unknown name
         return new TwinPolicy() {
             @Override
             public String name() {
-                return strategyName;
+                return name;
             }
 
             @Override

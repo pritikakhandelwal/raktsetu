@@ -12,10 +12,18 @@ import java.util.Objects;
  * @param compliance  probability that a centre reports its stock on a given day (1.0 = every day)
  * @param seed        base seed for all randomness
  * @param replication replication number; each replication gets different, but reproducible, randomness
+ * @param demand      how demand varies by weekday and season ({@link DemandPattern#FLAT} for none)
  */
-public record TwinSettings(LocalDate start, int warmupDays, int days, double compliance, long seed, int replication) {
+public record TwinSettings(LocalDate start, int warmupDays, int days, double compliance, long seed, int replication,
+                           DemandPattern demand) {
+
+    /** With flat demand. */
+    public TwinSettings(LocalDate start, int warmupDays, int days, double compliance, long seed, int replication) {
+        this(start, warmupDays, days, compliance, seed, replication, DemandPattern.FLAT);
+    }
 
     public TwinSettings {
+        Objects.requireNonNull(demand, "demand");
         Objects.requireNonNull(start, "start");
         if (warmupDays < 0 || days < 1) {
             throw new IllegalArgumentException("Need a non-negative warm-up and at least one measured day");

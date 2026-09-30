@@ -187,6 +187,20 @@ These come from a synthetic network with illustrative demand; they show the mech
 Both strategies save the same number of units here, but Expiry-First moves 22 fewer units to do it. Separating the
 strategies properly needs the larger experiments planned for Phase 4.
 
+## Research: forecasting study (Phase 2)
+
+On a synthetic Pune district network (10 centres, 22 hospitals, real road times), the digital twin compared six
+demand forecasters under flat, weekly and dengue-season demand, with 20 paired replications
+([method](docs/research/forecasting/method.md), [findings](docs/research/forecasting/findings.md)):
+
+- Redistribution itself cuts expired units by about **60%** and halves unmet demand when supply is adequate.
+- A longer history makes forecasts up to 13% more accurate, but modelling weekdays adds about 1 point once window
+  length is controlled for, and Croston/SBA does not help rare groups under this demand model.
+- More accurate forecasts did **not** give better plans: forecasters differ by under 20 expired units in 120 days,
+  and the differences follow how many units are moved, not forecast error.
+
+Demand patterns and the network are illustrative; calibration against real usage data is the next step.
+
 ## Modules
 
 | Module | Contents |

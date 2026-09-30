@@ -6,6 +6,7 @@ import com.raktsetu.domain.model.ComponentType;
 import com.raktsetu.domain.model.Urgency;
 import com.raktsetu.sim.RandomSource;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -61,6 +62,7 @@ public final class Schedule {
 
         List<Day> days = new ArrayList<>(settings.totalDays());
         for (int d = 0; d < settings.totalDays(); d++) {
+            LocalDate date = settings.start().plusDays(d);
             List<Supply> supplies = new ArrayList<>();
             for (Site c : spec.centres()) {
                 double share = c.supplyWeight() / totalSupplyWeight;
@@ -77,7 +79,8 @@ public final class Schedule {
             List<BloodRequest> requests = new ArrayList<>();
             for (Site h : spec.hospitals()) {
                 for (ComponentType type : ComponentType.values()) {
-                    double mean = h.demandWeight() * spec.dailyDemand().getOrDefault(type, 0.0);
+                    double mean = h.demandWeight() * spec.dailyDemand().getOrDefault(type, 0.0)
+                            * settings.demand().multiplier(date, type);
                     for (BloodGroup g : BloodGroup.values()) {
                         int units = demand.poisson(mean * RandomSource.GROUP_SHARE.get(g));
                         while (units > 0) {

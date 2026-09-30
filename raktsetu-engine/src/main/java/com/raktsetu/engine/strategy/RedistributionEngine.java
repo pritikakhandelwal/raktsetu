@@ -4,6 +4,7 @@ import com.raktsetu.domain.model.TransferOrder;
 import com.raktsetu.engine.BloodNetwork;
 import com.raktsetu.engine.ExpiryRiskAnalyzer;
 import com.raktsetu.engine.RiskItem;
+import com.raktsetu.engine.forecast.DemandForecaster;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -32,6 +33,12 @@ public final class RedistributionEngine {
     public static RedistributionEngine withDefaultStrategies() {
         return new RedistributionEngine(new ExpiryRiskAnalyzer(),
                 List.of(new NearestFirstStrategy(), new ExpiryFirstStrategy()));
+    }
+
+    /** Both strategies and the risk check using {@code forecaster} for demand. */
+    public static RedistributionEngine withForecaster(DemandForecaster forecaster) {
+        return new RedistributionEngine(new ExpiryRiskAnalyzer(ExpiryRiskAnalyzer.DEFAULT_LOOKAHEAD_DAYS, forecaster),
+                List.of(new NearestFirstStrategy(forecaster), new ExpiryFirstStrategy(forecaster)));
     }
 
     public List<RedistributionStrategy> strategies() {
