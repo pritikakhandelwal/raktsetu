@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -41,10 +42,14 @@ public class AccountController {
         this.guard = guard;
     }
 
-    /** Public: the blood centres and hospitals someone can ask to join. */
-    @GetMapping("/signup/facilities")
-    public List<AccountService.JoinableFacility> joinableFacilities() {
-        return accounts.joinableFacilities();
+    /**
+     * Public: blood centres or hospitals matching a search, for the request form. Facilities in the network come first,
+     * then matches from the directory of Indian facilities.
+     */
+    @GetMapping("/signup/places")
+    public List<AccountService.Place> places(@RequestParam(defaultValue = "HOSPITAL_STAFF") String role,
+                                             @RequestParam(defaultValue = "") String q) {
+        return accounts.places(role, q);
     }
 
     /** Public: a request to join, which an administrator must approve before the account can sign in. */

@@ -10,16 +10,15 @@ import java.util.Objects;
  * @param username    login name
  * @param displayName name shown in the app
  * @param role        what they may do
- * @param facilityId  the centre or hospital they work at; {@code null} for administrators
+ * @param facilityId  the centre or hospital they work at; {@code null} for administrators, and for someone whose
+ *                    request to join a facility not yet in the network is waiting (they cannot sign in until an
+ *                    administrator approves it, which adds the facility)
  */
 public record AppUser(String username, String displayName, Role role, String facilityId) {
 
     public AppUser {
         Objects.requireNonNull(username, "username");
         Objects.requireNonNull(role, "role");
-        if (role != Role.ADMIN && facilityId == null) {
-            throw new IllegalArgumentException("Staff accounts must belong to a facility");
-        }
     }
 
     public boolean isAdmin() {
@@ -42,7 +41,7 @@ public record AppUser(String username, String displayName, Role role, String fac
         if (isAdmin()) {
             return;
         }
-        if (role != staffRole || !this.facilityId.equals(facilityId)) {
+        if (role != staffRole || this.facilityId == null || !this.facilityId.equals(facilityId)) {
             throw new AccessDeniedException("You can only do this for your own "
                     + (staffRole == Role.HOSPITAL_STAFF ? "hospital" : "centre") + " (" + this.facilityId + ")");
         }

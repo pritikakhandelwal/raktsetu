@@ -1,8 +1,10 @@
 package com.raktsetu.server.security;
 
+import com.raktsetu.server.ApiModels.FacilityInput;
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.NetworkService;
 import com.raktsetu.server.alerts.AlertOutbox;
+import com.raktsetu.server.db.DirectoryRepository;
 import com.raktsetu.server.db.NotificationRepository;
 import com.raktsetu.server.alerts.PhoneNumbers;
 import com.raktsetu.server.privacy.PrivacyProperties;
@@ -28,7 +30,7 @@ public class AccountService {
     /** An account as administrators see it (never the password hash). */
     public record UserView(String username, String displayName, Role role, String facilityId, boolean enabled,
                            String phone, boolean alertsEnabled, boolean mustChangePassword, LocalDate createdOn,
-                           LocalDate anonymisedOn, boolean pending) {
+                           LocalDate anonymisedOn, boolean pending, String requestedFacility) {
     }
 
     /** A new or reset account with its one-time password, shown once. */
@@ -42,12 +44,21 @@ public class AccountService {
     public record UserInput(String username, String displayName, String role, String facilityId, String phone) {
     }
 
-    /** A request to join, from the sign-in page. Only blood centre and hospital staff accounts can be requested. */
-    public record SignupInput(String username, String displayName, String password, String role, String facilityId) {
+    /**
+     * A request to join, from the sign-in page. Only blood centre and hospital staff accounts can be requested. The
+     * facility is one already in the network ({@code facilityId}) or one from the directory ({@code directoryId}).
+     */
+    public record SignupInput(String username, String displayName, String password, String role, String facilityId,
+                              String directoryId) {
     }
 
-    /** A facility someone can ask to join, as listed on the public request form. */
-    public record JoinableFacility(String id, String name, String type) {
+    /**
+     * A facility someone can ask to join, as offered by the request form's search.
+     *
+     * @param facilityId  set when it is already in the network
+     * @param directoryId set when it is only in the directory of Indian facilities
+     */
+    public record Place(String facilityId, String directoryId, String name, String where, boolean onNetwork) {
     }
 
     /** Requests waiting beyond this many are refused, so a flood of requests cannot fill the database. */
@@ -68,10 +79,11 @@ public class AccountService {
     private final AlertOutbox outbox;
     private final PrivacyProperties privacy;
     private final NotificationRepository notifications;
+    private final DirectoryRepository directory;
 
     public AccountService(UserRepository users, PasswordEncoder encoder, NetworkService network, Clock clock,
                           LoginGuard guard, AlertOutbox outbox, PrivacyProperties privacy,
-                          NotificationRepository notifications) {
+                          NotificationRepository notifications, DirectoryRepository directory) {
         this.users = users;
         this.encoder = encoder;
         this.network = network;
@@ -80,6 +92,7 @@ public class AccountService {
         this.outbox = outbox;
         this.privacy = privacy;
         this.notifications = notifications;
+        this.directory = directory;
     }
 
     public boolean needsSetup() {
@@ -103,7 +116,7 @@ public class AccountService {
     }
 
     public List<UserView> list() {
-        return users.all().stream().map(AccountService::view).toList();
+        return users.all().stream().map(this::view).toList();
     }
 
     /** Creates an account with a one-time password; the person must choose their own at first sign-in. */
@@ -175,9 +188,26 @@ public class AccountService {
         users.setPassword(username, encoder.encode(input.newPassword()), false);
     }
 
-    /** The facilities someone can ask to join: every blood centre and hospital, by name. */
-    public List<JoinableFacility> joinableFacilities() {
-        return network.facilities().stream().map(f -> new JoinableFacility(f.id(), f.name(), f.type())).toList();
+    /**
+     * Facilities matching a search on the request form: those already in the network first, then up to 20 from the
+     * directory of Indian blood centres and hospitals. Hospital staff see hospitals; centre staff see blood centres.
+     */
+    public List<Place> places(String role, String query) {
+        boolean hospital = !"CENTRE_STAFF".equalsIgnoreCase(role == null ? "" : role.trim());
+        String[] words = (query == null ? "" : query).toLowerCase(Locale.ROOT).trim().split("\\s+");
+        List<Place> found = new java.util.ArrayList<>(network.facilities().stream()
+                .filter(f -> f.type().equals("HOSPITAL") == hospital)
+                .filter(f -> java.util.Arrays.stream(words).allMatch(w -> (f.name() + " " + nullToEmpty(f.address()))
+                        .toLowerCase(Locale.ROOT).contains(w)))
+                .map(f -> new Place(f.id(), null, f.name(), nullToEmpty(f.address()), true))
+                .limit(10).toList());
+        directory.search(hospital ? DirectoryRepository.HOSPITAL : DirectoryRepository.BLOOD_CENTRE, query, 20)
+                .forEach(e -> found.add(new Place(null, e.id(), e.name(), e.place(), false)));
+        return found;
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     /**
@@ -201,22 +231,58 @@ public class AccountService {
             case "HOSPITAL_STAFF" -> Role.HOSPITAL_STAFF;
             default -> throw new IllegalArgumentException("Choose blood centre staff or hospital staff");
         };
-        String facilityId = facilityFor(role, input.facilityId());
+        String facilityId = null;
+        String directoryId = null;
+        String facilityName;
+        if (input.directoryId() != null && !input.directoryId().isBlank()) {
+            DirectoryRepository.Entry entry = directory.find(input.directoryId().trim())
+                    .orElseThrow(() -> new IllegalArgumentException("Choose your facility from the list"));
+            boolean hospital = entry.kind().equals(DirectoryRepository.HOSPITAL);
+            if (hospital != (role == Role.HOSPITAL_STAFF)) {
+                throw new IllegalArgumentException(role == Role.HOSPITAL_STAFF
+                        ? "Hospital staff must belong to a hospital" : "Centre staff must belong to a blood centre");
+            }
+            facilityId = directory.networkFacility(entry.id()).orElse(null);
+            directoryId = facilityId == null ? entry.id() : null;
+            facilityName = entry.name() + ", " + entry.place();
+        } else {
+            facilityId = facilityFor(role, input.facilityId());
+            facilityName = facilityId;
+        }
         Passwords.check(input.password(), username);
         if (users.pendingCount() >= MAX_PENDING) {
             throw new IllegalArgumentException("Too many requests are waiting; ask a network administrator directly");
         }
         users.insertPending(new AppUser(username, name, role, facilityId), encoder.encode(input.password()),
-                LocalDate.now(clock));
+                LocalDate.now(clock), directoryId);
         notifications.add(LocalDate.now(clock), null, NotificationRepository.Kind.ACCOUNT_REQUESTED,
                 name + " (" + username + ") asked to join as " + (role == Role.HOSPITAL_STAFF ? "hospital" : "centre")
-                        + " staff at " + facilityId + ". Approve or reject on the People page.");
+                        + " staff at " + facilityName + ". Approve or reject on the People page.");
         return view(account(username));
     }
 
-    /** Approves a request to join. */
+    /**
+     * Approves a request to join. If the person's facility is only in the directory, it is added to the network
+     * first (a hospital, or a blood centre as a storage centre), with road routes to the other facilities.
+     */
     public synchronized UserView approve(String username) {
-        users.approve(pending(username).user().username());
+        UserRepository.Account account = pending(username);
+        String facilityId = account.user().facilityId();
+        String directoryId = account.requestedDirectoryId();
+        if (directoryId != null) {
+            facilityId = directory.networkFacility(directoryId).orElseGet(() -> {
+                DirectoryRepository.Entry e = directory.find(directoryId).orElseThrow(
+                        () -> new IllegalArgumentException("That facility is no longer in the directory"));
+                String type = e.kind().equals(DirectoryRepository.HOSPITAL) ? "HOSPITAL" : "STORAGE";
+                String address = String.join(", ", java.util.stream.Stream.of(e.address(), e.place())
+                        .filter(x -> !x.isBlank()).toList());
+                FacilityView added = network.addFacility(new FacilityInput(e.name(), type, e.latitude(),
+                        e.longitude(), address.length() > 300 ? address.substring(0, 300) : address));
+                directory.link(added.id(), directoryId);
+                return added.id();
+            });
+        }
+        users.approve(account.user().username(), facilityId);
         return view(account(username));
     }
 
@@ -319,9 +385,11 @@ public class AccountService {
         return n;
     }
 
-    private static UserView view(UserRepository.Account a) {
+    private UserView view(UserRepository.Account a) {
         AppUser u = a.user();
+        String requested = a.requestedDirectoryId() == null ? null : directory.find(a.requestedDirectoryId())
+                .map(e -> e.name() + ", " + e.place()).orElse(null);
         return new UserView(u.username(), u.displayName(), u.role(), u.facilityId(), a.enabled(), a.phone(),
-                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn(), a.pending());
+                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn(), a.pending(), requested);
     }
 }

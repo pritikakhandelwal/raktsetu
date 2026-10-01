@@ -206,13 +206,17 @@ export interface Account {
   createdOn: string | null;
   anonymisedOn: string | null;
   pending: boolean;
+  /** For a request to join a facility not yet in the network: its name and place. */
+  requestedFacility: string | null;
 }
 
-/** A blood centre or hospital someone can ask to join. */
-export interface JoinableFacility {
-  id: string;
+/** A hospital or blood centre offered by the request form's search: in the network, or from the directory. */
+export interface Place {
+  facilityId: string | null;
+  directoryId: string | null;
   name: string;
-  type: FacilityType;
+  where: string;
+  onNetwork: boolean;
 }
 
 /** The facts in the privacy notice, from the server's settings. */
@@ -344,9 +348,16 @@ export const api = {
   testAlert: () => post<{ queued: number; to: string; channels: string[] }>("/alerts/test"),
   resetPassword: (username: string) => post<NewAccount>(`/users/${encodeURIComponent(username)}/reset-password`),
   privacy: () => call<PrivacyNoticeFacts>("/privacy"),
-  signupFacilities: () => call<JoinableFacility[]>("/signup/facilities"),
-  signup: (body: { username: string; displayName: string; password: string; role: Role; facilityId: string }) =>
-    post<Account>("/signup", body),
+  places: (role: Role, q: string) =>
+    call<Place[]>(`/signup/places?role=${encodeURIComponent(role)}&q=${encodeURIComponent(q)}`),
+  signup: (body: {
+    username: string;
+    displayName: string;
+    password: string;
+    role: Role;
+    facilityId?: string;
+    directoryId?: string;
+  }) => post<Account>("/signup", body),
   approveAccount: (username: string) => post<Account>(`/users/${encodeURIComponent(username)}/approve`),
   rejectAccount: (username: string) => post<void>(`/users/${encodeURIComponent(username)}/reject`),
   myData: () => call<unknown>("/auth/my-data"),
