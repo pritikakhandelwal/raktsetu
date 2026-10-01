@@ -97,6 +97,22 @@ class RiskAndNetworkTest {
     }
 
     @Test
+    void aUnitCanBeLoggedUnderItsOwnDonationNumber() throws Exception {
+        BloodComponent unit = t.network.addUnit("SC01", " W1234 26 000123 ", PLATELETS, B_POS, TODAY, TODAY);
+
+        assertThat(unit.getId()).isEqualTo("W1234 26 000123");
+        assertThat(t.sc01.getInventory().find("W1234 26 000123")).isPresent();
+        assertThatThrownBy(() -> t.network.addUnit("SC02", "W1234 26 000123", PLATELETS, B_POS, TODAY, TODAY))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("already in stock at SC01");
+        assertThatThrownBy(() -> t.network.addUnit("SC01", " ", PLATELETS, B_POS, TODAY, TODAY))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> t.network.addUnit("H01", "X1", PLATELETS, B_POS, TODAY, TODAY))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> t.network.addUnit("SC01", "X2", PLATELETS, B_POS, TODAY.plusDays(1), TODAY))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void aDamagedUnitCanBeDiscardedWithAReason() throws Exception {
         BloodComponent unit = t.add(t.sc01, PLATELETS, B_POS, 1, 1).get(0);
 

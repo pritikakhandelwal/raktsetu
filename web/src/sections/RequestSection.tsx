@@ -8,7 +8,8 @@ export function RequestSection({ rev, changed, notify, fixedHospital }: SectionP
   const { data: facilities } = useLoad(api.facilities, [rev]);
   const hospitals = facilities?.filter((f) => f.type === "HOSPITAL") ?? [];
 
-  const [hospitalId, setHospitalId] = useState(fixedHospital ?? "H01");
+  const [chosenHospital, setHospitalId] = useState(fixedHospital);
+  const hospitalId = chosenHospital ?? hospitals[0]?.id ?? "";
   const [component, setComponent] = useState<Component>("RED_CELLS");
   const [group, setGroup] = useState("O-");
   const [quantity, setQuantity] = useState(2);
@@ -55,7 +56,7 @@ export function RequestSection({ rev, changed, notify, fixedHospital }: SectionP
                 >
                   {hospitals.map((h) => (
                     <option key={h.id} value={h.id}>
-                      {h.id} · {h.name.replace(" (sample)", "")}
+                      {h.id} · {h.name}
                     </option>
                   ))}
                 </select>

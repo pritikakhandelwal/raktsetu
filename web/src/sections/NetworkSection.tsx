@@ -5,10 +5,15 @@ import { SectionHead, errorText, useLoad, type SectionProps } from "../shared";
 
 export function NetworkSection({ rev, changed, notify }: SectionProps) {
   const { data: facilities, error } = useLoad(api.facilities, [rev]);
-  const [selected, setSelected] = useState("SC04");
-  const { data: stock } = useLoad(() => api.facilityStock(selected), [selected, rev]);
-
+  const [chosen, setChosen] = useState<string>();
   const centres = facilities?.filter((f) => f.type !== "HOSPITAL") ?? [];
+  const selected = chosen ?? centres[0]?.id;
+  const setSelected = setChosen;
+  const { data: stock } = useLoad(
+    () => (selected ? api.facilityStock(selected) : Promise.resolve(undefined)),
+    [selected, rev],
+  );
+
   const hospitals = facilities?.filter((f) => f.type === "HOSPITAL") ?? [];
 
   async function recordReport(id: string) {
@@ -29,9 +34,12 @@ export function NetworkSection({ rev, changed, notify }: SectionProps) {
           id="network-title"
           title="The network"
           red
-          note="One hub and four storage centres. Pick a centre to see its shelves. Centres that have not reported for over three days are treated as unverified."
+          note="Pick a centre to see its shelves. Centres that have not reported their stock for over three days are treated as unverified."
         />
         {error && <p className="message error">{error}</p>}
+        {facilities && centres.length === 0 && (
+          <div className="empty">No blood centres yet. Add them on the Facilities page.</div>
+        )}
         <div className="people">
           {centres.map((f) => (
             <button

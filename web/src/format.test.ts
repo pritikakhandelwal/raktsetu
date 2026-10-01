@@ -20,9 +20,9 @@ describe("format", () => {
     expect(badge("X")).toBe("X");
   });
 
-  it("splits sample facility names", () => {
-    expect(shortName("Storage Centre, Baramati (sample)")).toBe("Storage Centre");
-    expect(place("Storage Centre, Baramati (sample)")).toBe("Baramati");
+  it("splits facility names written as name, place", () => {
+    expect(shortName("Storage Centre, Baramati")).toBe("Storage Centre");
+    expect(place("Storage Centre, Baramati")).toBe("Baramati");
     expect(place("Central")).toBe("");
   });
 

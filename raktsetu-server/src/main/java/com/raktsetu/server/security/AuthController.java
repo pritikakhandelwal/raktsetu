@@ -18,9 +18,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 
-/** Signing in, finding out who is signed in, and (for administrators) listing accounts. */
+/** Signing in and finding out who is signed in. Accounts are managed in {@link AccountController}. */
 @RestController
 @RequestMapping("/api")
 public class AuthController {
@@ -28,17 +27,27 @@ public class AuthController {
     public record LoginInput(String username, String password) {
     }
 
+    /** Who is signed in, and whether they must choose a new password first. */
+    public record Me(String username, String displayName, Role role, String facilityId, boolean mustChangePassword) {
+    }
+
     private final AuthenticationManager authentication;
     private final SecurityContextRepository contexts;
-    private final CurrentUsers current;
     private final UserRepository users;
 
     public AuthController(AuthenticationManager authentication, SecurityContextRepository contexts,
-                          CurrentUsers current, UserRepository users) {
+                          UserRepository users) {
         this.authentication = authentication;
         this.contexts = contexts;
-        this.current = current;
         this.users = users;
+    }
+
+    private ResponseEntity<?> me(String username) {
+        return users.find(username).filter(UserRepository.Account::enabled)
+                .<ResponseEntity<?>>map(a -> ResponseEntity.ok(new Me(a.user().username(), a.user().displayName(),
+                        a.user().role(), a.user().facilityId(), a.mustChangePassword())))
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new ApiError("Unauthorized", "Not signed in")));
     }
 
     @PostMapping("/auth/login")
@@ -53,7 +62,7 @@ public class AuthController {
                     input.username().trim(), input.password()));
         } catch (AuthenticationException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ApiError("BadCredentials", "Wrong username or password"));
+                    .body(new ApiError("BadCredentials", "Wrong username or password, or the account is disabled"));
         }
         request.getSession(true);
         request.changeSessionId(); // protects against session fixation
@@ -61,7 +70,7 @@ public class AuthController {
         context.setAuthentication(result);
         SecurityContextHolder.setContext(context);
         contexts.saveContext(context, request, response);
-        return ResponseEntity.ok(current.of(result));
+        return me(result.getName());
     }
 
     @GetMapping("/auth/me")
@@ -69,12 +78,6 @@ public class AuthController {
         if (!CurrentUsers.isSignedIn(auth)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError("Unauthorized", "Not signed in"));
         }
-        return ResponseEntity.ok(current.of(auth));
-    }
-
-    @GetMapping("/users")
-    public List<AppUser> users(Authentication auth) {
-        current.of(auth).requireAdmin();
-        return users.all();
+        return me(auth.getName());
     }
 }

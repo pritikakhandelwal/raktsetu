@@ -30,14 +30,14 @@ export function badge(id: string): string {
   return digits.length >= 2 ? digits.slice(-2) : id.slice(0, 2).toUpperCase();
 }
 
-/** The part of a sample facility name before the comma, without "(sample)". */
+/** For names written "Name, Place": the part before the comma. */
 export function shortName(name: string): string {
-  return name.replace(/\s*\(sample\)\s*$/i, "").split(",")[0]!.trim();
+  return name.split(",")[0]!.trim();
 }
 
-/** The place in a sample facility name, after the comma. */
+/** For names written "Name, Place": the place after the comma, or an empty string. */
 export function place(name: string): string {
-  const parts = name.replace(/\s*\(sample\)\s*$/i, "").split(",");
+  const parts = name.split(",");
   return parts.length > 1 ? parts.slice(1).join(",").trim() : "";
 }
 

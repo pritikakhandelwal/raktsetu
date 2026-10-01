@@ -57,15 +57,29 @@ of user. **One command, nothing to install but Java 21+:**
 ./run-web.sh                      # Windows: run-web.bat
 ```
 
-Open http://localhost:8080. On first start the server creates the sample network in an embedded database
-(`raktsetu-data/`) and a set of demo accounts. **The shared demo password is in `raktsetu-data/demo-accounts.txt`**
-(random unless you set `--raktsetu.demo-password=...`).
+Open http://localhost:8080. The server starts empty: no sample data and no built-in accounts.
 
-| Account | Role | What they do |
+1. **First run:** the setup page asks you to create the first **network administrator** (your own username and a
+   password of at least 10 characters with a letter and a digit).
+2. **Facilities** (admin): add your hub blood centre, storage centres and hospitals, clicking the map to place each
+   one. Road routes to every other facility are worked out automatically (OSRM, with a straight-line estimate when
+   offline); the admin can correct any route by hand.
+3. **People** (admin): create an account for each member of staff and choose their facility. RaktSetu shows a
+   **one-time password** once; the person must choose their own password the first time they sign in. Admins can
+   reset a password or disable an account later.
+4. Centre staff record stock (with the donation number on the bag, or numbered automatically) and report their stock
+   daily; hospitals request blood.
+
+The overview page shows a getting-started checklist until these steps are done.
+
+| Role | Pages | What they do |
 |---|---|---|
-| `admin` | Network administrator | Sees the whole network; plans and approves transfers; runs the simulation; moves the demo date ("Next day") |
-| `hub01`, `sc01` ... `sc04` | Centre staff | Log collections, report daily stock, dispatch requests, receive transfers, discard damaged units |
-| `h01` ... `h06` | Hospital staff | Request blood for their hospital, cancel before dispatch, confirm receipt, check compatibility |
+| Network administrator | Overview, Requests, Transfers, Facilities, People, Audit | Sees the whole network; plans and approves transfers; manages facilities and accounts |
+| Centre staff | Today, Stock, Transfers | Log collections, report daily stock, dispatch requests, receive transfers, discard damaged units |
+| Hospital staff | Request blood, My requests, Availability | Request blood for their hospital, cancel before dispatch, confirm receipt |
+
+Every user has an **Account** page (click your name) to change their password. The date is the real date in
+India (Asia/Kolkata); just after midnight expired units move to wastage and the daily reminders go out.
 
 **How a request flows:** a hospital raises it → units are reserved immediately from the nearest compatible centres
 (soonest-expiring first) → each centre is notified and dispatches → the hospital confirms receipt. Cancelling before
@@ -80,20 +94,24 @@ daily reminder of stock expiring within two days and overdue stock reports.
 **With PostgreSQL** instead of the embedded database: `docker compose up --build` (or run the JAR with
 `--spring.profiles.active=postgres` and `RAKTSETU_DB_URL`, `RAKTSETU_DB_USER`, `RAKTSETU_DB_PASSWORD`).
 
-Options: `--raktsetu.today=2026-10-01` fixes the date for a demo; `--raktsetu.data-dir=...` chooses where the
-embedded database lives; `--server.port=...` changes the port. Delete the data folder to start afresh.
+Options: `--raktsetu.data-dir=...` chooses where the embedded database lives; `--raktsetu.routing-url=` (empty)
+turns off online route lookups; `--server.port=...` changes the port. Back up the data folder; deleting it starts
+afresh with the setup page.
 
 For front-end development with hot reload, run the server and then `npm run dev` in `web/`
 (http://localhost:5173 forwards `/api` to the server). `./mvnw verify -DskipFrontend` builds only the Java side.
 
 ### API
 
-All endpoints need a signed-in session except `POST /api/auth/login`; changes need the `X-XSRF-TOKEN` header
+All endpoints need a signed-in session except sign-in and first-run setup; accounts with a one-time password can
+only change their password until they do; changes need the `X-XSRF-TOKEN` header
 (the front end sends it from the `XSRF-TOKEN` cookie).
 
 | Endpoint | Who | Purpose |
 |---|---|---|
+| `GET/POST /api/setup` | Anyone, until the first admin exists | First-run setup |
 | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | Anyone | Sign in and out |
+| `POST /api/auth/password` | Signed in | Change your own password |
 | `GET /api/summary`, `/facilities`, `/facilities/{id}/stock`, `/stock`, `/risks`, `/audit`, `/wastage` | Signed in | Views |
 | `POST /api/facilities/{id}/units`, `/report`, `/units/{unitId}/discard` | That centre, admin | Stock changes |
 | `GET/POST /api/requests`; `POST /api/requests/{id}/dispatch`, `/receive`, `/cancel` | By role | Request workflow |
@@ -101,7 +119,8 @@ All endpoints need a signed-in session except `POST /api/auth/login`; changes ne
 | `POST /api/transfers/{id}/receive` | Destination centre | Confirm arrival |
 | `GET /api/notifications`; `POST /api/notifications/{id}/read`, `/read-all` | Signed in | Notifications |
 | `POST /api/compatibility`, `GET /api/strategies`, `/strategies/compare` | Signed in | Tools |
-| `POST /api/simulations`, `POST /api/date`, `GET /api/users` | Admin | Simulation, demo date, accounts |
+| `POST /api/facilities`, `PUT /api/facilities/{id}`, `GET /api/facilities/{id}/routes`, `PUT /api/routes/{from}/{to}` | Admin | Facilities and routes |
+| `GET/POST /api/users`; `POST /api/users/{u}/reset-password`, `/enabled` | Admin | Accounts |
 
 Errors come back as `{"error": ..., "message": ...}`: 400 bad input, 401 not signed in, 403 not allowed for this
 account, 404 unknown facility, 409 refused (for example not enough stock).

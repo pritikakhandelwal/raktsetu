@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api, type User } from "./api";
 import { Drop, errorText } from "./shared";
 
-/** The sign-in page. Demo accounts and their password are in demo-accounts.txt in the data folder. */
+/** The sign-in page. Accounts are created by a network administrator on the People page. */
 export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -70,8 +70,8 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
             </p>
           )}
           <p className="login-help">
-            Demo accounts: <code>admin</code>, each centre (<code>sc04</code>) and each hospital (<code>h01</code>). The
-            password is in <code>demo-accounts.txt</code> in the data folder.
+            No account yet, or forgotten your password? Ask your network administrator; they will give you a
+            one-time password.
           </p>
         </form>
       </div>

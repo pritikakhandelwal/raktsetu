@@ -4,25 +4,27 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 /**
- * Settings, from {@code application.properties} or the command line ({@code --raktsetu.today=2026-10-01}).
+ * Settings, from {@code application.properties}, environment variables or the command line.
  *
- * @param dataDir      folder for the embedded database and the demo-accounts file
- * @param today        the date the app treats as today; the system date when not set
- * @param seed         seed for the sample network and the simulation
- * @param demoPassword password for the demo accounts created on first start; random when not set
+ * @param dataDir    folder for the embedded database
+ * @param timeZone   the network's time zone; "today" and the midnight jobs follow it (default Asia/Kolkata)
+ * @param routingUrl OSRM routing service used to work out road routes between facilities; blank means offline
+ *                   estimates only
+ * @param today      for automated tests only: pins the date instead of using the real clock
  */
 @ConfigurationProperties("raktsetu")
-public record RaktSetuProperties(Path dataDir, LocalDate today, Long seed, String demoPassword) {
+public record RaktSetuProperties(Path dataDir, String timeZone, String routingUrl, LocalDate today) {
 
     public RaktSetuProperties {
         dataDir = dataDir == null ? Path.of("raktsetu-data") : dataDir;
-        seed = seed == null ? 42L : seed;
+        timeZone = timeZone == null || timeZone.isBlank() ? "Asia/Kolkata" : timeZone;
+        routingUrl = routingUrl == null ? "https://router.project-osrm.org" : routingUrl.trim();
     }
 
-    /** The configured date, or the system date. This is the only place the server reads the real clock. */
-    public LocalDate startDate() {
-        return today != null ? today : LocalDate.now();
+    public ZoneId zone() {
+        return ZoneId.of(timeZone);
     }
 }

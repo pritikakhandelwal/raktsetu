@@ -7,7 +7,7 @@ import com.raktsetu.domain.model.BloodGroup;
 import com.raktsetu.domain.model.CompatibilityResult;
 import com.raktsetu.domain.model.ComponentType;
 import com.raktsetu.domain.model.Facility;
-import com.raktsetu.domain.model.NetworkData;
+import com.raktsetu.domain.model.FacilityType;
 import com.raktsetu.domain.model.WastageRecord;
 import com.raktsetu.engine.BloodNetwork;
 import com.raktsetu.engine.Freshness;
@@ -18,55 +18,62 @@ import com.raktsetu.engine.strategy.RedistributionEngine;
 import com.raktsetu.engine.strategy.StrategyComparison;
 import com.raktsetu.persistence.AuditRecord;
 import com.raktsetu.server.ApiModels.AddUnitsInput;
-import com.raktsetu.server.db.AuditRepository;
-import com.raktsetu.server.db.NetworkRepository;
-import com.raktsetu.server.db.StateRepository;
-import com.raktsetu.server.db.TransferRepository;
 import com.raktsetu.server.ApiModels.AddedUnits;
 import com.raktsetu.server.ApiModels.AuditEntry;
 import com.raktsetu.server.ApiModels.AuditView;
 import com.raktsetu.server.ApiModels.CompatibilityInput;
 import com.raktsetu.server.ApiModels.CompatibilityView;
 import com.raktsetu.server.ApiModels.ComparisonView;
+import com.raktsetu.server.ApiModels.FacilityInput;
 import com.raktsetu.server.ApiModels.FacilityStock;
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.ApiModels.NetworkStock;
 import com.raktsetu.server.ApiModels.NetworkStockRow;
 import com.raktsetu.server.ApiModels.RiskView;
-import com.raktsetu.server.ApiModels.SimulationRow;
-import com.raktsetu.server.ApiModels.SimulationView;
+import com.raktsetu.server.ApiModels.RouteInput;
+import com.raktsetu.server.ApiModels.RouteView;
 import com.raktsetu.server.ApiModels.StockLine;
 import com.raktsetu.server.ApiModels.StrategyView;
 import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.ApiModels.WastageView;
-import com.raktsetu.sim.SampleNetworkFactory;
-import com.raktsetu.sim.SimulationResult;
-import com.raktsetu.sim.Simulator;
+import com.raktsetu.server.db.AuditRepository;
+import com.raktsetu.server.db.NetworkRepository;
+import com.raktsetu.server.db.NetworkRepository.Location;
+import com.raktsetu.server.db.NetworkRepository.RouteRow;
+import com.raktsetu.server.db.NotificationRepository;
+import com.raktsetu.server.db.NotificationRepository.Kind;
+import com.raktsetu.server.db.StateRepository;
+import com.raktsetu.server.db.TransferRepository;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * The web application's view of one blood network.
+ * The network: stock, facilities and routes, and everything computed from them.
  *
- * <p>The engine works on an in-memory network; the database is the source of truth. Every command runs through
- * {@link #change}: the command's audit events are appended to the hash-chained audit log and applied to the tables in
+ * <p>The engine works on an in-memory network; the database is the source of truth. Every change runs through
+ * {@link #change}: the change's audit events are appended to the hash-chained audit log and applied to the tables in
  * one transaction. If writing fails, the in-memory network is reloaded from the database, so the two never drift
  * apart. Methods are synchronized because one network is shared by all users of this server.
+ *
+ * <p>"Today" is the real date in the network's time zone. When a new day starts (checked at midnight and on every
+ * call), expired units are discarded and the day's reminders are sent.
  */
 @Service
 public class NetworkService {
 
     private static final int URGENT_DAYS = 2;
-    private static final int MAX_SIMULATION_DAYS = 365;
+    private static final int MAX_UNITS_PER_ENTRY = 500;
 
     /** A command that changes the network. */
     @FunctionalInterface
@@ -84,49 +91,97 @@ public class NetworkService {
     private final AuditRepository auditRepo;
     private final StateRepository state;
     private final TransferRepository transferRepo;
+    private final NotificationRepository notifications;
+    private final RouteService routing;
+    private final JdbcClient jdbc;
     private final TransactionTemplate tx;
+    private final Clock clock;
     private final CapturingAuditTrail capture = new CapturingAuditTrail();
     private final RedistributionEngine engine = RedistributionEngine.withDefaultStrategies();
-    private final long seed;
     private BloodNetwork network;
     private RequestService requests;
     private TransferService transfers;
     private LocalDate today;
 
-    public NetworkService(RaktSetuProperties properties, NetworkRepository networkRepo, AuditRepository auditRepo,
-                          StateRepository state, TransferRepository transferRepo, TransactionTemplate tx)
-            throws RaktSetuException {
+    public NetworkService(NetworkRepository networkRepo, AuditRepository auditRepo, StateRepository state,
+                          TransferRepository transferRepo, NotificationRepository notifications, RouteService routing,
+                          JdbcClient jdbc, TransactionTemplate tx, Clock clock) {
         this.networkRepo = networkRepo;
         this.auditRepo = auditRepo;
         this.state = state;
         this.transferRepo = transferRepo;
+        this.notifications = notifications;
+        this.routing = routing;
+        this.jdbc = jdbc;
         this.tx = tx;
-        this.seed = properties.seed();
-        this.today = startDate(properties);
-        if (networkRepo.isEmpty()) {
-            NetworkData sample = SampleNetworkFactory.create(today, seed);
-            tx.executeWithoutResult(s -> {
-                networkRepo.seed(sample);
-                state.put(StateRepository.NEXT_UNIT_SERIAL, String.valueOf(sample.nextUnitSerial()));
-            });
-        }
+        this.clock = clock;
         reload();
-        change(() -> network.removeExpired(today));
+        newDayIfNeeded();
     }
 
-    /** The configured date, else a demo date saved earlier (if not in the past), else the system date. */
-    private LocalDate startDate(RaktSetuProperties properties) {
-        if (properties.today() != null) {
-            return properties.today();
+    // ------------------------------------------------------------------ the day
+
+    /** Runs just after midnight so expiry and reminders happen even if nobody is using the site. */
+    @Scheduled(cron = "0 1 0 * * *", zone = "${raktsetu.time-zone:Asia/Kolkata}")
+    public synchronized void midnight() {
+        newDayIfNeeded();
+    }
+
+    /** If the date has changed: discard expired units, then send the day's reminders (once per day). */
+    synchronized void newDayIfNeeded() {
+        LocalDate now = LocalDate.now(clock);
+        if (now.equals(today)) {
+            return;
         }
-        LocalDate system = properties.startDate();
-        return state.get(StateRepository.TODAY).map(LocalDate::parse).filter(d -> !d.isBefore(system))
-                .orElse(system);
+        today = now;
+        try {
+            change(() -> network.removeExpired(today));
+        } catch (RaktSetuException e) {
+            throw new IllegalStateException("Could not discard expired units", e);
+        }
+        dailyDigest();
+    }
+
+    /**
+     * Once per day: tells each centre about stock expiring within two days and overdue stock reports, and tells
+     * administrators which centres' data cannot be trusted and how much stock is at risk.
+     */
+    private void dailyDigest() {
+        if (state.get(StateRepository.LAST_DIGEST).map(today.toString()::equals).orElse(false)) {
+            return;
+        }
+        List<String> unverified = new ArrayList<>();
+        int atRisk = engine.risks(network, today).stream().mapToInt(r -> r.atRisk().size()).sum();
+        tx.executeWithoutResult(s -> {
+            for (Facility f : network.storingFacilities()) {
+                int urgent = urgentUnits(f);
+                if (urgent > 0) {
+                    notifications.add(today, f.getId(), Kind.EXPIRING_SOON, urgent + " unit(s) expire within 2 days. "
+                            + "Issue them first, or they may be offered to other centres.");
+                }
+                if (Freshness.of(f, today) == Freshness.UNVERIFIED) {
+                    unverified.add(f.getId());
+                    notifications.add(today, f.getId(), Kind.REPORT_OVERDUE, "Your stock was last reported on "
+                            + (f.getLastReportedOn() == null ? "never" : f.getLastReportedOn())
+                            + ". Please report today's stock so the network can rely on it.");
+                }
+            }
+            if (!unverified.isEmpty()) {
+                notifications.add(today, null, Kind.REPORT_OVERDUE, "Stock data is unverified (over 3 days old) for "
+                        + String.join(", ", unverified) + ". Their stock is searched last and receives no transfers.");
+            }
+            if (atRisk > 0) {
+                notifications.add(today, null, Kind.EXPIRING_SOON, atRisk + " unit(s) are at risk of expiring unused "
+                        + "this week. Generate a transfer plan to rescue them.");
+            }
+            state.put(StateRepository.LAST_DIGEST, today.toString());
+        });
     }
 
     // ------------------------------------------------------------------ overview
 
-    public synchronized Summary summary() throws RaktSetuException {
+    public synchronized Summary summary() {
+        newDayIfNeeded();
         int units = 0;
         int urgent = 0;
         for (Facility f : network.storingFacilities()) {
@@ -140,11 +195,14 @@ public class NetworkService {
     }
 
     public synchronized List<FacilityView> facilities() {
+        newDayIfNeeded();
         Map<String, Integer> atRisk = atRiskByFacility();
-        return network.facilities().stream().map(f -> view(f, atRisk)).toList();
+        Map<String, Location> locations = networkRepo.locations();
+        return network.facilities().stream().map(f -> view(f, atRisk, locations)).toList();
     }
 
     public synchronized FacilityStock facilityStock(String id) throws RaktSetuException {
+        newDayIfNeeded();
         Facility f = network.facility(id);
         List<StockLine> lines = new ArrayList<>();
         if (f.canStore()) {
@@ -160,10 +218,11 @@ public class NetworkService {
                 }
             }
         }
-        return new FacilityStock(view(f, atRiskByFacility()), lines);
+        return new FacilityStock(view(f, atRiskByFacility(), networkRepo.locations()), lines);
     }
 
     public synchronized NetworkStock networkStock() {
+        newDayIfNeeded();
         List<String> groups = new ArrayList<>();
         for (BloodGroup g : BloodGroup.values()) {
             groups.add(g.label());
@@ -192,6 +251,7 @@ public class NetworkService {
     }
 
     public synchronized WastageView wastage() {
+        newDayIfNeeded();
         Map<String, Integer> byComponent = new TreeMap<>();
         Map<String, Integer> byFacility = new TreeMap<>();
         for (WastageRecord w : network.wastage()) {
@@ -201,26 +261,49 @@ public class NetworkService {
         return new WastageView(network.wastage().size(), byComponent, byFacility);
     }
 
-    // ------------------------------------------------------------------ changes to stock
+    // ------------------------------------------------------------------ stock at a centre
 
+    /**
+     * Records units received at a centre. With {@code unitId} (the bag's own donation number) exactly one unit is
+     * added under that ID; otherwise RaktSetu assigns IDs.
+     */
     public synchronized AddedUnits addUnits(String facilityId, AddUnitsInput input) throws RaktSetuException {
+        newDayIfNeeded();
         require(input, "request body");
         ComponentType type = ComponentType.parse(input.component());
         BloodGroup group = BloodGroup.parse(input.group());
         LocalDate collected = input.collectedOn() == null ? today : input.collectedOn();
-        int quantity = requirePositive(input.quantity(), "quantity", 500);
-        List<BloodComponent> added = change(
-                () -> network.addUnits(facilityId, type, group, collected, quantity, today));
+        String unitId = input.unitId() == null ? "" : input.unitId().trim();
+        List<BloodComponent> added;
+        if (!unitId.isEmpty()) {
+            if (input.quantity() != null && input.quantity() != 1) {
+                throw new IllegalArgumentException("A donation number identifies one unit; log units one at a time");
+            }
+            if (unitIdUsedBefore(unitId)) {
+                throw new IllegalArgumentException("Unit " + unitId + " has already been recorded in RaktSetu");
+            }
+            added = List.of(change(() -> network.addUnit(facilityId, unitId, type, group, collected, today)));
+        } else {
+            int quantity = requirePositive(input.quantity(), "quantity", MAX_UNITS_PER_ENTRY);
+            added = change(() -> network.addUnits(facilityId, type, group, collected, quantity, today));
+        }
         return new AddedUnits(added.stream().map(BloodComponent::getId).toList(), added.get(0).getExpiryDate());
     }
 
+    private boolean unitIdUsedBefore(String unitId) {
+        return jdbc.sql("select (select count(*) from unit where id = :id) + (select count(*) from request_unit "
+                        + "where unit_id = :id) + (select count(*) from wastage where unit_id = :id)")
+                .param("id", unitId).query(Integer.class).single() > 0;
+    }
+
     public synchronized FacilityView recordReport(String facilityId) throws RaktSetuException {
+        newDayIfNeeded();
         Facility f = change(() -> {
             Facility facility = network.facility(facilityId);
             facility.markReported(today);
             return facility;
         });
-        return view(f, atRiskByFacility());
+        return view(f, atRiskByFacility(), networkRepo.locations());
     }
 
     public synchronized CompatibilityView compatibility(CompatibilityInput input) {
@@ -228,13 +311,125 @@ public class NetworkService {
         ComponentType type = ComponentType.parse(input.component());
         BloodGroup donor = BloodGroup.parse(input.donor());
         BloodGroup recipient = BloodGroup.parse(input.recipient());
-        CompatibilityResult r = type.newUnit("CHECK", donor, today).compatibilityWith(recipient);
+        CompatibilityResult r = type.newUnit("CHECK", donor, LocalDate.now(clock)).compatibilityWith(recipient);
         return new CompatibilityView(r.isAllowed(), r.level().name(), r.reason());
+    }
+
+    // ------------------------------------------------------------------ facilities and routes (administrators)
+
+    /**
+     * Adds a blood centre, storage centre or hospital at a location, and works out road routes to every other
+     * facility.
+     */
+    public synchronized FacilityView addFacility(FacilityInput input) {
+        newDayIfNeeded();
+        Validated v = validate(input);
+        String prefix = switch (v.type()) {
+            case HUB -> "HUB";
+            case STORAGE -> "SC";
+            case HOSPITAL -> "H";
+        };
+        List<RouteService.Place> others = places();
+        String[] id = new String[1];
+        tx.executeWithoutResult(s -> {
+            id[0] = networkRepo.nextFacilityId(prefix);
+            networkRepo.insertFacility(id[0], v.name(), v.type(), v.latitude(), v.longitude(), v.address());
+            networkRepo.replaceRoutes(id[0], legs(new RouteService.Place(id[0], v.latitude(), v.longitude()), others));
+        });
+        reload();
+        return facilities().stream().filter(f -> f.id().equals(id[0])).findFirst().orElseThrow();
+    }
+
+    /** Changes a facility's name, address or location; a new location recalculates its routes. */
+    public synchronized FacilityView updateFacility(String id, FacilityInput input) throws RaktSetuException {
+        newDayIfNeeded();
+        Facility existing = network.facility(id);
+        Validated v = validate(new FacilityInput(input == null ? null : input.name(), existing.getFacilityType().name(),
+                input == null ? null : input.latitude(), input == null ? null : input.longitude(),
+                input == null ? null : input.address()));
+        Location old = networkRepo.locations().get(id);
+        boolean moved = old == null || old.latitude() == null || old.latitude() != v.latitude()
+                || old.longitude() != v.longitude();
+        List<RouteService.Place> others = places().stream().filter(p -> !p.id().equals(id)).toList();
+        tx.executeWithoutResult(s -> {
+            networkRepo.updateFacility(id, v.name(), v.latitude(), v.longitude(), v.address());
+            if (moved) {
+                networkRepo.replaceRoutes(id, legs(new RouteService.Place(id, v.latitude(), v.longitude()), others));
+            }
+        });
+        reload();
+        return facilities().stream().filter(f -> f.id().equals(id)).findFirst().orElseThrow();
+    }
+
+    public synchronized List<RouteView> routes(String id) throws RaktSetuException {
+        network.facility(id);
+        Map<String, String> names = new HashMap<>();
+        network.facilities().forEach(f -> names.put(f.getId(), f.getName()));
+        return networkRepo.routesFrom(id).stream()
+                .map(r -> new RouteView(r.toId(), names.getOrDefault(r.toId(), r.toId()), r.distanceKm(),
+                        r.travelMinutes(), r.source()))
+                .toList();
+    }
+
+    /** Corrects a route by hand, in both directions. */
+    public synchronized RouteView setRoute(String fromId, String toId, RouteInput input) throws RaktSetuException {
+        network.facility(fromId);
+        Facility to = network.facility(toId);
+        if (fromId.equals(toId)) {
+            throw new IllegalArgumentException("A route needs two different facilities");
+        }
+        int km = requirePositive(input == null ? null : input.distanceKm(), "distanceKm", 5000);
+        int minutes = requirePositive(input == null ? null : input.travelMinutes(), "travelMinutes", 6000);
+        tx.executeWithoutResult(s -> {
+            networkRepo.upsertRoute(new RouteRow(fromId, toId, km, minutes, "MANUAL"));
+            networkRepo.upsertRoute(new RouteRow(toId, fromId, km, minutes, "MANUAL"));
+        });
+        reload();
+        return new RouteView(toId, to.getName(), km, minutes, "MANUAL");
+    }
+
+    private record Validated(String name, FacilityType type, double latitude, double longitude, String address) {
+    }
+
+    private static Validated validate(FacilityInput input) {
+        require(input, "request body");
+        String name = require(input.name(), "name").trim();
+        if (name.length() > 200) {
+            throw new IllegalArgumentException("name is too long");
+        }
+        FacilityType type = FacilityType.parse(require(input.type(), "type"));
+        double lat = require(input.latitude(), "latitude");
+        double lon = require(input.longitude(), "longitude");
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            throw new IllegalArgumentException("latitude and longitude are out of range");
+        }
+        String address = input.address() == null ? null : input.address().trim();
+        if (address != null && address.length() > 300) {
+            throw new IllegalArgumentException("address is too long");
+        }
+        return new Validated(name, type, lat, lon, address);
+    }
+
+    private List<RouteService.Place> places() {
+        List<RouteService.Place> places = new ArrayList<>();
+        networkRepo.locations().forEach((fid, loc) -> {
+            if (loc.latitude() != null && loc.longitude() != null) {
+                places.add(new RouteService.Place(fid, loc.latitude(), loc.longitude()));
+            }
+        });
+        return places;
+    }
+
+    private List<RouteRow> legs(RouteService.Place place, List<RouteService.Place> others) {
+        return routing.between(place, others).stream()
+                .map(l -> new RouteRow(l.fromId(), l.toId(), l.distanceKm(), l.travelMinutes(), l.source()))
+                .toList();
     }
 
     // ------------------------------------------------------------------ risk and redistribution
 
     public synchronized List<RiskView> risks() {
+        newDayIfNeeded();
         return engine.risks(network, today).stream()
                 .map(r -> new RiskView(r.facility().getId(), r.facility().getName(), r.component().name(),
                         r.group().label(), r.atRisk().size(), r.usableStock(), r.soonestDaysLeft(),
@@ -247,6 +442,7 @@ public class NetworkService {
     }
 
     public synchronized List<ComparisonView> compare() {
+        newDayIfNeeded();
         List<ComparisonView> result = new ArrayList<>();
         for (StrategyComparison c : engine.compare(network, today)) {
             result.add(new ComparisonView(c.strategy(), c.orders().size(), c.unitsRescued(), c.stillAtRisk(),
@@ -255,7 +451,7 @@ public class NetworkService {
         return result;
     }
 
-    // ------------------------------------------------------------------ audit, simulation, date
+    // ------------------------------------------------------------------ audit
 
     public synchronized AuditView audit(int limit) {
         List<AuditEntry> entries = new ArrayList<>();
@@ -266,34 +462,6 @@ public class NetworkService {
         }
         AuditRepository.Verification v = auditRepo.verify();
         return new AuditView(auditRepo.count(), v.intact(), v.message(), entries);
-    }
-
-    public synchronized SimulationView simulate(Integer days) throws RaktSetuException {
-        int n = days == null ? Simulator.DEFAULT_DAYS : requirePositive(days, "days", MAX_SIMULATION_DAYS);
-        List<SimulationResult> results = new Simulator(today, n, seed).compareAll();
-        SimulationResult base = results.get(0);
-        List<SimulationRow> rows = new ArrayList<>();
-        for (SimulationResult r : results) {
-            Map<String, Integer> byComponent = new LinkedHashMap<>();
-            for (ComponentType t : ComponentType.values()) {
-                byComponent.put(t.name(), r.expired(t));
-            }
-            rows.add(new SimulationRow(r.policy(), r.unitsExpired(), byComponent, r.requestsFulfilled(),
-                    r.requestsUnmet(), r.unitsTransferred(), r.wastageReductionVersus(base)));
-        }
-        return new SimulationView(n, seed, today, rows);
-    }
-
-    /** Moves "today" forward and removes anything that expired. */
-    public synchronized Summary advanceTo(LocalDate date) throws RaktSetuException {
-        require(date, "today");
-        if (date.isBefore(today)) {
-            throw new IllegalArgumentException("The date can only move forward; stock has already been processed up to "
-                    + today);
-        }
-        today = date;
-        change(() -> network.removeExpired(today));
-        return summary();
     }
 
     // ------------------------------------------------------------------ helpers
@@ -316,6 +484,9 @@ public class NetworkService {
             result = command.run();
         } catch (RaktSetuException e) {
             refused = e;
+        } catch (RuntimeException e) {
+            capture.clear(); // nothing was changed: engine operations check before they act
+            throw e;
         }
         List<AuditEvent> events = capture.drain();
         T resultFinal = result;
@@ -326,7 +497,6 @@ public class NetworkService {
                 networkRepo.apply(events, network);
                 networkRepo.saveReportDates(network.facilities());
                 state.put(StateRepository.NEXT_UNIT_SERIAL, String.valueOf(network.snapshot().nextUnitSerial()));
-                state.put(StateRepository.TODAY, today.toString());
                 if (refusedFinal == null) {
                     after.write(resultFinal);
                 }
@@ -341,8 +511,19 @@ public class NetworkService {
         return result;
     }
 
+    /**
+     * Reloads from the database and processes the current day again (expiry and reminders). Used after data has been
+     * loaded into the database directly, for example a bulk import.
+     */
+    synchronized void reloadAndReprocessDay() {
+        reload();
+        today = null;
+        state.put(StateRepository.LAST_DIGEST, "");
+        newDayIfNeeded();
+    }
+
     /** Rebuilds the in-memory network from the database. */
-    private void reload() {
+    synchronized void reload() {
         long serial = state.get(StateRepository.NEXT_UNIT_SERIAL).map(Long::parseLong).orElse(1L);
         network = new BloodNetwork(networkRepo.load(serial), capture);
         requests = new RequestService(network);
@@ -356,6 +537,7 @@ public class NetworkService {
     }
 
     LocalDate today() {
+        newDayIfNeeded();
         return today;
     }
 
@@ -369,10 +551,6 @@ public class NetworkService {
 
     RedistributionEngine engine() {
         return engine;
-    }
-
-    int urgentUnitsAt(Facility f) {
-        return urgentUnits(f);
     }
 
     private Map<String, Integer> atRiskByFacility() {
@@ -390,11 +568,13 @@ public class NetworkService {
         return (int) f.getInventory().allUnits().stream().filter(u -> u.daysToExpiry(today) <= URGENT_DAYS).count();
     }
 
-    private FacilityView view(Facility f, Map<String, Integer> atRisk) {
+    private FacilityView view(Facility f, Map<String, Integer> atRisk, Map<String, Location> locations) {
         long days = f.daysSinceReport(today);
+        Location loc = locations.getOrDefault(f.getId(), new Location(null, null, null));
         return new FacilityView(f.getId(), f.getName(), f.getFacilityType().name(), f.getLastReportedOn(),
                 days == Long.MAX_VALUE ? null : days, Freshness.of(f, today).name(),
-                f.canStore() ? f.getInventory().totalUnits() : 0, urgentUnits(f), atRisk.getOrDefault(f.getId(), 0));
+                f.canStore() ? f.getInventory().totalUnits() : 0, urgentUnits(f), atRisk.getOrDefault(f.getId(), 0),
+                loc.latitude(), loc.longitude(), loc.address());
     }
 
     private static <T> T require(T value, String name) {

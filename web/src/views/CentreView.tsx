@@ -5,8 +5,14 @@ import { RequestBoard } from "../components/RequestBoard";
 import { RiskSection } from "../sections/RiskSection";
 import { SectionHead, errorText, useLoad, type SectionProps } from "../shared";
 
-/** What staff at one blood centre see: their stock, what to send, what is coming, and daily tasks. */
-export function CentreView(props: SectionProps & { user: User; today: string }) {
+export type CentrePage = "home" | "stock" | "transfers";
+
+/**
+ * What staff at one blood centre see. Home: their centre, requests to dispatch and at-risk stock. Stock: shelves,
+ * logging collections and discarding damaged units. Transfers: incoming and outgoing.
+ */
+export function CentreView(props: SectionProps & { user: User; today: string; page: CentrePage }) {
+  const { page } = props;
   const { user, rev, changed, notify } = props;
   const centre = user.facilityId!;
   const { data: stock } = useLoad(() => api.facilityStock(centre), [centre, rev]);
@@ -24,6 +30,7 @@ export function CentreView(props: SectionProps & { user: User; today: string }) 
   const f = stock?.facility;
   return (
     <>
+      {page === "home" && (
       <section id="top" className="section hero role-hero" aria-labelledby="centre-title">
         <div className="glow" style={{ width: 360, height: 360, left: "-120px", top: "60px" }} />
         <div className="wrap hero-grid">
@@ -43,8 +50,8 @@ export function CentreView(props: SectionProps & { user: User; today: string }) 
               <button className="btn" type="button" onClick={report}>
                 Report today's stock
               </button>
-              <a className="btn ghost" href="#dispatch">
-                Requests to dispatch
+              <a className="btn ghost" href="#/stock">
+                Log stock
               </a>
             </div>
           </div>
@@ -68,7 +75,9 @@ export function CentreView(props: SectionProps & { user: User; today: string }) 
           </div>
         </div>
       </section>
+      )}
 
+      {page === "home" && (
       <section id="dispatch" className="section cream on-light" aria-labelledby="dispatch-title">
         <div className="wrap">
           <SectionHead
@@ -80,10 +89,12 @@ export function CentreView(props: SectionProps & { user: User; today: string }) 
           <RequestBoard {...props} />
         </div>
       </section>
+      )}
 
-      <IncomingTransfers {...props} centre={centre} />
+      {page === "transfers" && <IncomingTransfers {...props} centre={centre} />}
 
-      <section id="shelves" className="section" aria-labelledby="shelves-title">
+      {page === "stock" && (
+      <section id="shelves" className="section page" aria-labelledby="shelves-title">
         <div className="wrap">
           <SectionHead
             id="shelves-title"
@@ -132,8 +143,9 @@ export function CentreView(props: SectionProps & { user: User; today: string }) 
           </div>
         </div>
       </section>
+      )}
 
-      <RiskSection {...props} facilityId={centre} />
+      {page === "home" && <RiskSection {...props} facilityId={centre} />}
     </>
   );
 }
@@ -154,7 +166,7 @@ function IncomingTransfers({ rev, changed, notify, centre }: SectionProps & { ce
   }
 
   return (
-    <section id="transfers" className="section red" aria-labelledby="transfers-title">
+    <section id="transfers" className="section red page" aria-labelledby="transfers-title">
       <div className="wrap">
         <SectionHead
           id="transfers-title"
@@ -214,6 +226,7 @@ function LogCollection({ changed, notify, centre, today }: SectionProps & { cent
   const [group, setGroup] = useState("O+");
   const [quantity, setQuantity] = useState(1);
   const [collectedOn, setCollectedOn] = useState(today ?? "");
+  const [unitId, setUnitId] = useState("");
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -221,10 +234,13 @@ function LogCollection({ changed, notify, centre, today }: SectionProps & { cent
       const r = await api.addUnits(centre, {
         component,
         group,
-        quantity,
+        quantity: unitId.trim() ? 1 : quantity,
         ...(collectedOn ? { collectedOn } : {}),
+        ...(unitId.trim() ? { unitId: unitId.trim() } : {}),
       });
-      notify(`Logged ${plural(r.unitIds.length, "unit")} (${r.unitIds[0]}…), expiring ${r.expiresOn}.`, true);
+      setUnitId("");
+      const ids = r.unitIds.length === 1 ? r.unitIds[0] : `${r.unitIds[0]} to ${r.unitIds[r.unitIds.length - 1]}`;
+      notify(`Logged ${plural(r.unitIds.length, "unit")} (${ids}), expiring ${r.expiresOn}.`, true);
       changed();
     } catch (err) {
       notify(errorText(err));
@@ -253,9 +269,20 @@ function LogCollection({ changed, notify, centre, today }: SectionProps & { cent
             ))}
           </select>
         </label>
+        <label className="full">
+          Donation number on the bag (optional)
+          <input value={unitId} onChange={(e) => setUnitId(e.target.value)} placeholder="Leave blank to number automatically" />
+        </label>
         <label>
           Units
-          <input type="number" min={1} max={500} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+          <input
+            type="number"
+            min={1}
+            max={500}
+            value={unitId.trim() ? 1 : quantity}
+            disabled={unitId.trim() !== ""}
+            onChange={(e) => setQuantity(Number(e.target.value))}
+          />
         </label>
         <label>
           Collected on

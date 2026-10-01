@@ -37,7 +37,7 @@ class WorkflowTest {
     static void properties(DynamicPropertyRegistry registry) {
         TestDatabase.register(registry, "workflowtest");
         registry.add("raktsetu.today", () -> "2026-10-01");
-        registry.add("raktsetu.demo-password", () -> "unused-password");
+        registry.add("raktsetu.routing-url", () -> "");
     }
 
     @Autowired
@@ -47,6 +47,7 @@ class WorkflowTest {
 
     @BeforeEach
     void setUp() {
+        TestFixtures.sampleNetwork(context);
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
     }
 
@@ -184,7 +185,6 @@ class WorkflowTest {
     void theDailyDigestFlagsOverdueReportsAndExpiringStock() throws Exception {
         as("sc03", "GET", "/api/notifications", null)
                 .andExpect(jsonPath("$.items[*].kind", hasItem("REPORT_OVERDUE")));
-        as("admin", "POST", "/api/date", "{\"today\":\"2026-10-02\"}").andExpect(status().isOk());
         as("admin", "GET", "/api/notifications", null)
                 .andExpect(jsonPath("$.items[*].message", hasItem(containsString("unverified"))));
     }
