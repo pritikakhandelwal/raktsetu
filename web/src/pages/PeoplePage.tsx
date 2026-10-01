@@ -42,6 +42,23 @@ export function PeoplePage(props: SectionProps & { me: User }) {
     }
   }
 
+  async function erase(a: Account) {
+    if (
+      !window.confirm(
+        `Erase ${a.displayName}'s name and mobile number? This cannot be undone. Their username stays on past records.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.anonymise(a.username);
+      notify(`${a.username}'s personal details have been erased.`, true);
+      changed();
+    } catch (err) {
+      notify(errorText(err));
+    }
+  }
+
   const facilityName = (id: string | null) => facilities?.find((f) => f.id === id)?.name ?? id ?? "";
 
   return (
@@ -96,7 +113,9 @@ export function PeoplePage(props: SectionProps & { me: User }) {
                     <td>{ROLE_LABELS[a.role]}</td>
                     <td>{a.facilityId ? `${a.facilityId} · ${facilityName(a.facilityId)}` : "Whole network"}</td>
                     <td>
-                      {!a.enabled ? (
+                      {a.anonymisedOn ? (
+                        <span className="chip bad">details erased</span>
+                      ) : !a.enabled ? (
                         <span className="chip bad">disabled</span>
                       ) : a.mustChangePassword ? (
                         <span className="chip STALE">awaiting first sign-in</span>
@@ -106,12 +125,19 @@ export function PeoplePage(props: SectionProps & { me: User }) {
                     </td>
                     <td>{a.alertsEnabled && a.phone ? a.phone : <span className="muted">off</span>}</td>
                     <td className="row-actions">
-                      <button className="btn ghost small" type="button" onClick={() => reset(a)}>
-                        Reset password
-                      </button>
-                      {a.username !== me.username && (
+                      {!a.anonymisedOn && (
+                        <button className="btn ghost small" type="button" onClick={() => reset(a)}>
+                          Reset password
+                        </button>
+                      )}
+                      {a.username !== me.username && !a.anonymisedOn && (
                         <button className="btn ghost small" type="button" onClick={() => toggle(a)}>
                           {a.enabled ? "Disable" : "Enable"}
+                        </button>
+                      )}
+                      {!a.enabled && !a.anonymisedOn && (
+                        <button className="btn ghost small" type="button" onClick={() => erase(a)}>
+                          Erase details
                         </button>
                       )}
                     </td>

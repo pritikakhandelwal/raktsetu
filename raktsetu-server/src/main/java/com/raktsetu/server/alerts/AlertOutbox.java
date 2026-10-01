@@ -117,16 +117,42 @@ public class AlertOutbox {
     /** The newest deliveries, newest first. */
     public List<Delivery> recent(int limit) {
         return jdbc.sql("select * from alert_outbox order by id desc limit " + limit)
-                .query((rs, n) -> {
-                    long sent = rs.getLong("sent_at");
-                    boolean notSent = rs.wasNull();
-                    return new Delivery(rs.getLong("id"), rs.getString("username"),
-                            PhoneNumbers.mask(rs.getString("phone")), rs.getString("channel"),
-                            rs.getString("message"), Status.valueOf(rs.getString("status")), rs.getInt("attempts"),
-                            rs.getString("last_error"), Instant.ofEpochMilli(rs.getLong("created_at")),
-                            notSent ? null : Instant.ofEpochMilli(sent));
-                })
-                .list();
+                .query(AlertOutbox::delivery).list();
+    }
+
+    /**
+     * Forgets someone's number in the alert records, for when they withdraw consent or their details are erased:
+     * alerts still waiting are given up, and the number is replaced by {@value #REMOVED} in every record. Returns how
+     * many records changed.
+     */
+    public int forget(String username) {
+        jdbc.sql("update alert_outbox set status = 'FAILED', last_error = 'Number removed' "
+                + "where username = ? and status = 'PENDING'").param(username).update();
+        return jdbc.sql("update alert_outbox set phone = ? where username = ?").params(REMOVED, username).update();
+    }
+
+    /** What replaces an erased number in the alert records. */
+    public static final String REMOVED = "removed";
+
+    /** One person's alerts, newest first, with the number masked: for their own copy of their data. */
+    public List<Delivery> forUser(String username) {
+        return jdbc.sql("select * from alert_outbox where username = ? order by id desc").param(username)
+                .query(AlertOutbox::delivery).list();
+    }
+
+    /** Deletes sent and failed alerts created before {@code cutoff}. Pending alerts are kept. */
+    public int purgeBefore(long cutoff) {
+        return jdbc.sql("delete from alert_outbox where status <> 'PENDING' and created_at < ?").param(cutoff)
+                .update();
+    }
+
+    private static Delivery delivery(java.sql.ResultSet rs, int n) throws java.sql.SQLException {
+        long sent = rs.getLong("sent_at");
+        boolean notSent = rs.wasNull();
+        return new Delivery(rs.getLong("id"), rs.getString("username"), PhoneNumbers.mask(rs.getString("phone")),
+                rs.getString("channel"), rs.getString("message"), Status.valueOf(rs.getString("status")),
+                rs.getInt("attempts"), rs.getString("last_error"), Instant.ofEpochMilli(rs.getLong("created_at")),
+                notSent ? null : Instant.ofEpochMilli(sent));
     }
 
     /** How many alerts are in each status. */

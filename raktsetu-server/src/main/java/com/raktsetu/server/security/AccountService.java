@@ -2,7 +2,9 @@ package com.raktsetu.server.security;
 
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.NetworkService;
+import com.raktsetu.server.alerts.AlertOutbox;
 import com.raktsetu.server.alerts.PhoneNumbers;
+import com.raktsetu.server.privacy.PrivacyProperties;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,7 +26,8 @@ public class AccountService {
 
     /** An account as administrators see it (never the password hash). */
     public record UserView(String username, String displayName, Role role, String facilityId, boolean enabled,
-                           String phone, boolean alertsEnabled, boolean mustChangePassword, LocalDate createdOn) {
+                           String phone, boolean alertsEnabled, boolean mustChangePassword, LocalDate createdOn,
+                           LocalDate anonymisedOn) {
     }
 
     /** A new or reset account with its one-time password, shown once. */
@@ -50,14 +53,18 @@ public class AccountService {
     private final NetworkService network;
     private final Clock clock;
     private final LoginGuard guard;
+    private final AlertOutbox outbox;
+    private final PrivacyProperties privacy;
 
     public AccountService(UserRepository users, PasswordEncoder encoder, NetworkService network, Clock clock,
-                          LoginGuard guard) {
+                          LoginGuard guard, AlertOutbox outbox, PrivacyProperties privacy) {
         this.users = users;
         this.encoder = encoder;
         this.network = network;
         this.clock = clock;
         this.guard = guard;
+        this.outbox = outbox;
+        this.privacy = privacy;
     }
 
     public boolean needsSetup() {
@@ -118,6 +125,7 @@ public class AccountService {
                 LocalDate.now(clock));
         if (phone != null) {
             users.setContact(username, phone, true);
+            users.recordContactBasis(username, "EMPLOYER", clock.millis(), privacy.noticeVersion());
         }
         return new NewAccount(view(users.find(username).orElseThrow()), oneTime);
     }
@@ -161,8 +169,9 @@ public class AccountService {
     }
 
     /**
-     * Sets someone's mobile number and whether they want urgent alerts. A blank number removes it (and turns alerts
-     * off); alerts cannot be on without a number.
+     * Sets someone's mobile number and whether they want urgent alerts. The number is held only for alerts, so turning
+     * alerts off (or giving a blank number) erases it, including from the record of past alerts: this is how
+     * someone withdraws consent. Turning alerts on records that they agreed, when, and under which privacy notice.
      */
     public synchronized UserView updateContact(String username, ContactInput input) {
         UserRepository.Account account = account(username);
@@ -174,8 +183,36 @@ public class AccountService {
         if (wanted && phone == null) {
             throw new IllegalArgumentException("Add a mobile number to receive alerts");
         }
-        users.setContact(account.user().username(), phone, wanted);
-        return view(users.find(account.user().username()).orElseThrow());
+        String name = account.user().username();
+        if (!wanted) {
+            users.setContact(name, null, false);
+            users.recordContactBasis(name, null, 0, null);
+            outbox.forget(name);
+        } else {
+            users.setContact(name, phone, true);
+            boolean changed = !phone.equals(account.phone()) || !account.alertsEnabled();
+            if (changed) {
+                users.recordContactBasis(name, "CONSENT", clock.millis(), privacy.noticeVersion());
+            }
+        }
+        return view(users.find(name).orElseThrow());
+    }
+
+    /**
+     * Erases a former member of staff's name and mobile number, keeping only the username that the tamper-evident
+     * audit log refers to. Only disabled accounts can be erased, and never your own.
+     */
+    public synchronized UserView anonymise(String username, AppUser actingAdmin) {
+        UserRepository.Account account = account(username);
+        if (account.user().username().equals(actingAdmin.username())) {
+            throw new IllegalArgumentException("You cannot erase your own account");
+        }
+        if (account.enabled()) {
+            throw new IllegalArgumentException("Disable the account before erasing the person's details");
+        }
+        users.anonymise(account.user().username(), LocalDate.now(clock));
+        outbox.forget(account.user().username());
+        return view(account(username));
     }
 
     public boolean mustChangePassword(String username) {
@@ -207,6 +244,6 @@ public class AccountService {
     private static UserView view(UserRepository.Account a) {
         AppUser u = a.user();
         return new UserView(u.username(), u.displayName(), u.role(), u.facilityId(), a.enabled(), a.phone(),
-                a.alertsEnabled(), a.mustChangePassword(), a.createdOn());
+                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn());
     }
 }

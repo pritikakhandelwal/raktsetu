@@ -19,6 +19,7 @@ import { FacilitiesPage } from "./pages/FacilitiesPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { GettingStarted } from "./pages/GettingStarted";
 import { AccountPage } from "./pages/AccountPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 
 const PAGES: Record<User["role"], [string, string][]> = {
   ADMIN: [
@@ -55,6 +56,7 @@ export function App() {
   const [needsSetup, setNeedsSetup] = useState<boolean>();
   const [user, setUser] = useState<User | null>();
   const [failure, setFailure] = useState("");
+  const route = useRoute();
 
   const loadMe = useCallback(() => {
     api
@@ -97,7 +99,9 @@ export function App() {
     );
   }
   if (user === undefined) return <div className="loading">Loading RaktSetu…</div>;
-  if (user === null) return <Login onSignedIn={setUser} />;
+  if (user === null) {
+    return route === "/privacy" ? <PrivacyPage signedIn={false} /> : <Login onSignedIn={setUser} />;
+  }
   if (user.mustChangePassword) {
     return <ForcedPasswordChange name={user.displayName} onDone={loadMe} onSignOut={signOut} />;
   }
@@ -123,7 +127,7 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   }
   const props: SectionProps = { rev, changed, notify };
   const pages = PAGES[user.role];
-  const known = route === "/account" || pages.some(([path]) => path === route);
+  const known = route === "/account" || route === "/privacy" || pages.some(([path]) => path === route);
   const page = known ? route : "/";
 
   return (
@@ -166,6 +170,8 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
       <main id="main" key={page}>
         {page === "/account" ? (
           <AccountPage {...props} user={user} />
+        ) : page === "/privacy" ? (
+          <PrivacyPage signedIn />
         ) : (
           <>
             {user.role === "ADMIN" && <AdminPage page={page} props={props} user={user} summary={summary} />}
@@ -190,6 +196,8 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
             Signed in as {user.displayName}.
             <br />
             Every change is recorded on a tamper-evident log.
+            <br />
+            <Link to="/privacy">Privacy notice</Link>
           </p>
         </div>
       </footer>

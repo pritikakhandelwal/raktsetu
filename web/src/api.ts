@@ -204,6 +204,15 @@ export interface Account {
   alertsEnabled: boolean;
   mustChangePassword: boolean;
   createdOn: string | null;
+  anonymisedOn: string | null;
+}
+
+/** The facts in the privacy notice, from the server's settings. */
+export interface PrivacyNoticeFacts {
+  organisation: string | null;
+  contact: string | null;
+  noticeVersion: string;
+  alertRetentionDays: number;
 }
 
 export type AlertStatus = "PENDING" | "SENT" | "FAILED";
@@ -326,6 +335,9 @@ export const api = {
   alerts: () => call<AlertsView>("/alerts"),
   testAlert: () => post<{ queued: number; to: string; channels: string[] }>("/alerts/test"),
   resetPassword: (username: string) => post<NewAccount>(`/users/${encodeURIComponent(username)}/reset-password`),
+  privacy: () => call<PrivacyNoticeFacts>("/privacy"),
+  myData: () => call<unknown>("/auth/my-data"),
+  anonymise: (username: string) => post<Account>(`/users/${encodeURIComponent(username)}/anonymise`),
   setEnabled: (username: string, enabled: boolean) =>
     post<Account>(`/users/${encodeURIComponent(username)}/enabled`, { enabled }),
   addFacility: (body: FacilityInput) => post<Facility>("/facilities", body),
