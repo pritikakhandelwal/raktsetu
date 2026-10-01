@@ -19,8 +19,20 @@ production-quality system. The full plan is in
 |---|---|---|
 | 0 Foundations | Repository, CI, domain model, compatibility rules, design doc, UML v1 | Done |
 | 1 Course core (V1) | 16-option console app, persistence, allocation, strategies, simulator | **Done** |
-| 2–4 Research | Digital twin, forecasting, stale-data-aware optimiser, experiments, paper | Planned |
-| 5 System (V3) | Spring Boot server, database, sign-in, workflows, notifications, dashboard | **Working product** (FHIR API, monitoring and load tests still to do) |
+| 2 Digital twin and forecasting | Twin with true vs reported stock, Pune pilot network with road routes, six demand forecasters, 20-replication study | **Done** ([findings](docs/research/forecasting/findings.md)) |
+| 3–4 Research | Stale-data-aware optimiser, reporting-compliance experiments, calibration with real data, paper | Planned |
+| 5 System (V3) | Spring Boot server, database, sign-in and roles, workflows, notifications, SMS/WhatsApp alerts, monitoring, API docs, benchmarked and load-tested | **Working product** (e-Raktkosh/FHIR integration and hosting still to do) |
+
+### Course deliverables
+
+| Deliverable | State |
+|---|---|
+| Java source code | Done: 7 Maven modules + React front end, 189 Java tests, 80% coverage gate per module |
+| UML design documents | Done: 8 diagrams in [`docs/uml`](docs/uml) |
+| Executable project | Done: web app and console JARs (see [Releases](https://github.com/pritikakhandelwal/raktsetu/releases)); one-click Windows package planned |
+| Project report | Drafted; the PDF will be added to `docs/` at submission |
+| PowerPoint presentation | Drafted (10 slides) |
+| Final demonstration | Script ready (first-run setup to a delivered request and an approved transfer) |
 
 ## Quick start
 
@@ -230,11 +242,15 @@ A unit is expired **on** its expiry date. Shelf-life values must be confirmed ag
 - [Design document](docs/design.md)
 - [Architecture decision records](docs/adr)
 - [UML diagrams (PlantUML sources)](docs/uml)
+- [OOP concepts, class by class](docs/oop-concepts.md)
+- [Performance: benchmarks and load test](docs/benchmarks/README.md)
+- [Research: forecasting study](docs/research/forecasting/findings.md)
+- [Roadmap](docs/roadmap/RaktSetu_Final_Roadmap.pdf)
 - [Data file formats](data/README.md)
 - [How we work](CONTRIBUTING.md)
 
 ## Scope
 
-RaktSetu is a decision-support prototype running on simulated data. It recommends transfers for authorised staff to
-approve; it never moves blood automatically. Transfers between blood centres are permitted in India under the
+RaktSetu is a working decision-support system; its research results so far come from simulated data on a synthetic
+network. It recommends transfers for authorised staff to approve; it never moves blood automatically. Transfers between blood centres are permitted in India under the
 3 April 2017 amendment to the Drugs and Cosmetics Rules. No donor personal data is stored.
