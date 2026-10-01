@@ -1,0 +1,38 @@
+# Pune district pilot network for the digital twin.
+# SYNTHETIC facilities placed at real towns: no row represents a real blood bank or hospital.
+# Coordinates are approximate town centres. Demand weight 1.0 = a typical city hospital.
+# Supply weights push 40% of collections to rural centres while rural hospitals need ~24% of demand:
+# the routine "push" mismatch that redistribution is meant to correct.
+id,name,type,latitude,longitude,demand_weight,supply_weight,area
+HUB01,Hub Blood Centre (synthetic),HUB,18.5204,73.8567,0,0.30,urban
+SC01,Blood Centre Pimpri-Chinchwad (synthetic),STORAGE,18.6298,73.7997,0,0.10,urban
+SC02,Blood Centre Hadapsar (synthetic),STORAGE,18.5089,73.9260,0,0.10,urban
+SC03,Blood Centre Kothrud (synthetic),STORAGE,18.5074,73.8077,0,0.10,urban
+SC04,Blood Centre Chakan (synthetic),STORAGE,18.7606,73.8636,0,0.0667,rural
+SC05,Blood Centre Talegaon (synthetic),STORAGE,18.7350,73.6755,0,0.0667,rural
+SC06,Blood Centre Baramati (synthetic),STORAGE,18.1515,74.5815,0,0.0667,rural
+SC07,Blood Centre Shirur (synthetic),STORAGE,18.8260,74.3740,0,0.0667,rural
+SC08,Blood Centre Junnar (synthetic),STORAGE,19.2089,73.8752,0,0.0667,rural
+SC09,Blood Centre Bhor (synthetic),STORAGE,18.1515,73.8436,0,0.0667,rural
+H01,Hospital Shivajinagar (synthetic),HOSPITAL,18.5308,73.8475,2.0,0,urban
+H02,Hospital Camp (synthetic),HOSPITAL,18.5158,73.8770,1.4,0,urban
+H03,Hospital Aundh (synthetic),HOSPITAL,18.5580,73.8075,1.2,0,urban
+H04,Hospital Wakad (synthetic),HOSPITAL,18.5990,73.7650,1.0,0,urban
+H05,Hospital Nigdi (synthetic),HOSPITAL,18.6510,73.7700,1.0,0,urban
+H06,Hospital Hadapsar (synthetic),HOSPITAL,18.5010,73.9350,1.2,0,urban
+H07,Hospital Kharadi (synthetic),HOSPITAL,18.5510,73.9400,1.0,0,urban
+H08,Hospital Kondhwa (synthetic),HOSPITAL,18.4780,73.8910,0.8,0,urban
+H09,Hospital Warje (synthetic),HOSPITAL,18.4820,73.8020,0.8,0,urban
+H10,Hospital Katraj (synthetic),HOSPITAL,18.4480,73.8580,1.0,0,urban
+H11,Hospital Wagholi (synthetic),HOSPITAL,18.5808,73.9787,0.6,0,urban
+H12,Hospital Chakan (synthetic),HOSPITAL,18.7580,73.8600,0.4,0,rural
+H13,Hospital Talegaon (synthetic),HOSPITAL,18.7300,73.6800,0.4,0,rural
+H14,Hospital Lonavala (synthetic),HOSPITAL,18.7481,73.4072,0.3,0,rural
+H15,Hospital Baramati (synthetic),HOSPITAL,18.1550,74.5800,0.6,0,rural
+H16,Hospital Daund (synthetic),HOSPITAL,18.4637,74.5795,0.3,0,rural
+H17,Hospital Indapur (synthetic),HOSPITAL,18.1169,75.0199,0.3,0,rural
+H18,Hospital Shirur (synthetic),HOSPITAL,18.8260,74.3700,0.3,0,rural
+H19,Hospital Junnar (synthetic),HOSPITAL,19.2089,73.8700,0.3,0,rural
+H20,Hospital Manchar (synthetic),HOSPITAL,19.0070,73.9433,0.3,0,rural
+H21,Hospital Saswad (synthetic),HOSPITAL,18.3456,74.0306,0.3,0,rural
+H22,Hospital Bhor (synthetic),HOSPITAL,18.1515,73.8500,0.2,0,rural

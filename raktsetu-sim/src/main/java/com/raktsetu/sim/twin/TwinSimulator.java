@@ -84,7 +84,7 @@ public final class TwinSimulator {
             for (Schedule.Supply s : day.supplies()) {
                 truth.addUnits(s.centreId(), s.type(), s.group(), today, s.units(), today);
                 if (measured) {
-                    c.collected += s.units();
+                    c.collected[s.type().ordinal()] += s.units();
                 }
             }
             List<TwinPolicy.Shortfall> shortfalls = new ArrayList<>();
@@ -104,12 +104,8 @@ public final class TwinSimulator {
             }
         }
 
-        List<Integer> expired = new ArrayList<>();
-        for (int n : c.expired) {
-            expired.add(n);
-        }
         TwinResult result = new TwinResult(policy.name(), settings.compliance(), settings.replication(),
-                settings.days(), c.collected, c.issued, expired, c.requests, c.requestsUnmet, c.unitsRequested,
+                settings.days(), list(c.collected), c.issued, list(c.expired), c.requests, c.requestsUnmet, c.unitsRequested,
                 c.unitsUnmet, c.substituted, c.oNegativeToOthers, c.planned, c.moved, c.km, c.urbanRequested,
                 c.urbanUnmet, c.ruralRequested, c.ruralUnmet);
         return new Run(result, truth, recorder == null ? List.of() : recorder.events());
@@ -180,10 +176,18 @@ public final class TwinSimulator {
         }
     }
 
+    private static List<Integer> list(int[] counts) {
+        List<Integer> list = new ArrayList<>(counts.length);
+        for (int n : counts) {
+            list.add(n);
+        }
+        return list;
+    }
+
     /** Running totals for one run. */
     private static final class Counters {
         final int[] expired = new int[ComponentType.values().length];
-        int collected;
+        final int[] collected = new int[ComponentType.values().length];
         int issued;
         int requests;
         int requestsUnmet;

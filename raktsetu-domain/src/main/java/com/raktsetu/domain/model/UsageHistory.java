@@ -67,6 +67,23 @@ public final class UsageHistory {
         return (double) total / windowDays;
     }
 
+    /**
+     * Units issued on each day from {@code from} (inclusive) to {@code toExclusive}, zero for days with none: the
+     * series a forecaster learns from. Index 0 is {@code from}.
+     */
+    public int[] dailySeries(String facilityId, ComponentType component, BloodGroup group, LocalDate from,
+                             LocalDate toExclusive) {
+        int length = (int) Math.max(0, toExclusive.toEpochDay() - from.toEpochDay());
+        int[] series = new int[length];
+        NavigableMap<LocalDate, Integer> days = daily.get(new Key(facilityId, component, group));
+        if (days != null) {
+            long start = from.toEpochDay();
+            days.subMap(from, true, toExclusive, false)
+                    .forEach((date, units) -> series[(int) (date.toEpochDay() - start)] = units);
+        }
+        return series;
+    }
+
     public double averageDaily(String facilityId, ComponentType component, BloodGroup group, LocalDate today) {
         return averageDaily(facilityId, component, group, today, DEFAULT_WINDOW_DAYS);
     }

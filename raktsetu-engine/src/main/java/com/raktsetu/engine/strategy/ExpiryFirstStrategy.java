@@ -1,6 +1,7 @@
 package com.raktsetu.engine.strategy;
 
 import com.raktsetu.domain.model.BloodComponent;
+import com.raktsetu.engine.forecast.DemandForecaster;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -13,6 +14,13 @@ import java.util.List;
 public final class ExpiryFirstStrategy extends AbstractRedistributionStrategy {
 
     public static final String NAME = "expiry-first";
+
+    public ExpiryFirstStrategy() {
+    }
+
+    public ExpiryFirstStrategy(DemandForecaster forecaster) {
+        super(forecaster);
+    }
 
     @Override
     public String name() {

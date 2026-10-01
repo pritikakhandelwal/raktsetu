@@ -22,5 +22,9 @@
             <groupId>com.raktsetu</groupId>
             <artifactId>raktsetu-engine</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.raktsetu</groupId>
+            <artifactId>raktsetu-persistence</artifactId>
+        </dependency>
     </dependencies>
 </project>

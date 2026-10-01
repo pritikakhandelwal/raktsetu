@@ -1,0 +1,75 @@
+@startuml forecasting
+' RaktSetu demand forecasting (Strategy pattern). Keep in sync with raktsetu-engine/.../engine/forecast.
+skinparam classAttributeIconSize 0
+hide empty members
+
+interface DemandForecaster {
+  +name() : String
+  +forecast(history, facilityId, component, group, today) : Forecast
+}
+interface Forecast {
+  +over(days) : double
+  +dailyRate() : double
+}
+class Flat <<record>> {
+  rate : double
+}
+class Weekly <<record>> {
+  level : double
+  index : double[7]
+  todayWeekday : int
+}
+class MovingAverageForecaster {
+  -window : int
+}
+class ExponentialSmoothingForecaster {
+  -alpha : double
+}
+class CrostonForecaster {
+  -alpha : double
+  ~{static} rate(series, alpha) : double
+}
+class DayOfWeekForecaster {
+  -weeks : int
+  ~{static} profile(series, firstWeekday, todayWeekday) : Weekly
+}
+class SeasonalSmoothingForecaster {
+  -alpha : double
+  -weeks : int
+}
+class ExpiryRiskAnalyzer {
+  -lookaheadDays : int
+  +analyze(network, today) : List<RiskItem>
+}
+abstract class AbstractRedistributionStrategy {
+  +plan(network, risks, today) : List<TransferOrder> {final}
+}
+class RedistributionEngine {
+  +{static} withDefaultStrategies()
+  +{static} withForecaster(forecaster)
+}
+class UsageHistory {
+  +averageDaily(...) : double
+  +dailySeries(...) : int[]
+}
+
+DemandForecaster <|.. MovingAverageForecaster
+DemandForecaster <|.. ExponentialSmoothingForecaster
+DemandForecaster <|.. CrostonForecaster
+DemandForecaster <|.. DayOfWeekForecaster
+DemandForecaster <|.. SeasonalSmoothingForecaster
+DemandForecaster +-- Forecast
+Forecast <|.. Flat
+Forecast <|.. Weekly
+DemandForecaster ..> Forecast : creates
+DemandForecaster ..> UsageHistory : learns from
+SeasonalSmoothingForecaster ..> DayOfWeekForecaster : reuses profile()
+ExpiryRiskAnalyzer o-- DemandForecaster
+AbstractRedistributionStrategy o-- DemandForecaster
+RedistributionEngine ..> DemandForecaster : wires into analyser\nand strategies
+
+note right of ExpiryRiskAnalyzer
+  The k-th unit to expire is at risk
+  if k > forecast.over(daysLeft).
+end note
+@enduml

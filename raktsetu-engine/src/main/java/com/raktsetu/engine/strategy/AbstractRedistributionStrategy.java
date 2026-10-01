@@ -9,6 +9,9 @@ import com.raktsetu.domain.model.TransferOrder;
 import com.raktsetu.engine.BloodNetwork;
 import com.raktsetu.engine.Freshness;
 import com.raktsetu.engine.RiskItem;
+import com.raktsetu.engine.forecast.DemandForecaster;
+import com.raktsetu.engine.forecast.DemandForecaster.Forecast;
+import com.raktsetu.engine.forecast.MovingAverageForecaster;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -18,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * The shared planning algorithm (Template Method pattern). Subclasses decide only two things: the order in which
@@ -25,13 +29,25 @@ import java.util.Map;
  *
  * <p>A destination is feasible for a unit when it stores blood, its data is not {@link Freshness#UNVERIFIED}, a route
  * exists, the unit still has at least one day left on arrival, and the destination has <em>spare demand</em>:
- * {@code floor(usage per day x days left on arrival) - its usable stock - units already sent there}. Units are only
+ * {@code floor(forecast demand over the days left on arrival) - its usable stock - units already sent there}. Units are only
  * sent where they are expected to be used, never simply moved to be wasted elsewhere. Transfers are same-group only.
  */
 public abstract class AbstractRedistributionStrategy implements RedistributionStrategy {
 
     private static final DateTimeFormatter ID_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     private static final int MINUTES_PER_DAY = 24 * 60;
+
+    private final DemandForecaster forecaster;
+
+    /** With the moving-average forecaster. */
+    protected AbstractRedistributionStrategy() {
+        this(new MovingAverageForecaster());
+    }
+
+    /** @param forecaster predicts how much each possible destination will use */
+    protected AbstractRedistributionStrategy(DemandForecaster forecaster) {
+        this.forecaster = Objects.requireNonNull(forecaster, "forecaster");
+    }
 
     /** An at-risk unit waiting to be placed. */
     protected record Candidate(Facility source, BloodComponent unit, RiskItem risk) {
@@ -54,7 +70,7 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
                 candidates.add(new Candidate(risk.facility(), unit, risk));
             }
         }
-        Figures figures = new Figures(network, today);
+        Figures figures = new Figures(network, forecaster, today);
         Map<Group, List<BloodComponent>> groups = new LinkedHashMap<>();
         Map<Group, String> reasons = new HashMap<>();
         for (Candidate c : order(candidates)) {
@@ -101,7 +117,7 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
                 continue;
             }
             SlotState state = t.state();
-            int spare = (int) Math.floor(state.usage * daysOnArrival) - state.stock - state.sent;
+            int spare = (int) Math.floor(state.demand.over(daysOnArrival)) - state.stock - state.sent;
             if (spare > 0) {
                 options.add(new Destination(t.facility(), t.route(), spare));
             }
@@ -119,12 +135,12 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
      * counts units this plan has already sent there.
      */
     private static final class SlotState {
-        final double usage;
+        final Forecast demand;
         final int stock;
         int sent;
 
-        SlotState(double usage, int stock) {
-            this.usage = usage;
+        SlotState(Forecast demand, int stock) {
+            this.demand = demand;
             this.stock = stock;
         }
     }
@@ -136,18 +152,20 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
     /** What one plan looks up, each worked out once. */
     private static final class Figures {
         private final BloodNetwork network;
+        private final DemandForecaster forecaster;
         private final LocalDate today;
         private final Map<Slot, SlotState> states = new HashMap<>();
         private final Map<Slot, List<Target>> targets = new HashMap<>();
 
-        Figures(BloodNetwork network, LocalDate today) {
+        Figures(BloodNetwork network, DemandForecaster forecaster, LocalDate today) {
             this.network = network;
+            this.forecaster = forecaster;
             this.today = today;
         }
 
         SlotState state(Facility f, ComponentType type, BloodGroup group) {
             return states.computeIfAbsent(new Slot(f.getId(), type, group), k -> new SlotState(
-                    network.usage().averageDaily(f.getId(), type, group, today),
+                    forecaster.forecast(network.usage(), f.getId(), type, group, today),
                     f.getInventory().countUsable(type, group, today)));
         }
 

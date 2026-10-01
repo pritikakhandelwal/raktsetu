@@ -52,7 +52,8 @@ class TwinSimulatorTest {
             }
         }
         return new NetworkSpec("small", sites, routes, Map.of(ComponentType.RED_CELLS, 6.0,
-                ComponentType.PLATELETS, 2.5, ComponentType.PLASMA, 3.0, ComponentType.WHOLE_BLOOD, 0.5), 1.10);
+                ComponentType.PLATELETS, 2.5, ComponentType.PLASMA, 3.0, ComponentType.WHOLE_BLOOD, 0.5),
+                NetworkSpec.uniformSupply(1.10));
     }
 
     private static TwinSettings settings(double compliance, int replication) {
@@ -168,7 +169,8 @@ class TwinSimulatorTest {
         assertThatThrownBy(() -> new TwinSettings(START, 0, 0, 1.0, 1, 1)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new TwinSettings(START, 0, 10, 1.5, 1, 1)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> TwinPolicy.strategy("random")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new NetworkSpec("x", List.of(smallSpec().sites().get(0)), List.of(), Map.of(), 1.0))
+        assertThatThrownBy(() -> new NetworkSpec("x", List.of(smallSpec().sites().get(0)), List.of(), Map.of(),
+                NetworkSpec.uniformSupply(1.0)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }
