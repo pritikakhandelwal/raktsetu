@@ -19,6 +19,10 @@ dates from which each duty applies, because the Rules bring them into force in p
 | Username on requests and transfers | Staff | `blood_request.raised_by`, `transfer.decided_by` | Accountability for blood movements | Employment; legal record-keeping | Permanently, as the network's record |
 | Sign-in failures (username, address) | Anyone | Memory only | Lockout after repeated failures | Security (s. 8(5)) | 15 minutes; lost on restart |
 
+**The facility directory holds no personal data.** The 8,912 blood centres and hospitals offered on the request form
+come from the National Health Portal's open data (built by `tools/directory/build_directory.py`). The source lists
+blood bank nodal officers' names, phone numbers and e-mail addresses; those are deliberately not copied.
+
 **Patients are not identified.** A request holds only component, ABO/RhD group and quantity. The privacy notice tells
 staff not to type patient details into any field. **Donors are not identified**: a unit carries only the donation
 number printed on the bag, which only the collecting centre can link to a person.

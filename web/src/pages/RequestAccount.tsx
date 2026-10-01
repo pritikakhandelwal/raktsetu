@@ -1,37 +1,46 @@
-import { useState, type FormEvent } from "react";
-import { api, type Role } from "../api";
-import { errorText, useLoad } from "../shared";
+import { useEffect, useState, type FormEvent } from "react";
+import { api, type Place, type Role } from "../api";
+import { errorText } from "../shared";
 
 type JoinRole = Extract<Role, "CENTRE_STAFF" | "HOSPITAL_STAFF">;
 
 /**
- * Asking to join, from the sign-in page. The account stays locked until a network administrator approves it on the
- * People page, so nobody can give themselves access to the network.
+ * Asking to join, from the sign-in page. People search for their hospital or blood centre among those already in the
+ * network and a directory of Indian facilities. The account stays locked until a network administrator approves it
+ * on the People page, so nobody can give themselves access to the network.
  */
 export function RequestAccount({ onBack }: { onBack: () => void }) {
-  const { data: facilities, error: loadError } = useLoad(api.signupFacilities, []);
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<JoinRole>("HOSPITAL_STAFF");
-  const [facilityId, setFacilityId] = useState("");
+  const [place, setPlace] = useState<Place>();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
 
-  const choices = (facilities ?? []).filter((f) => (f.type === "HOSPITAL") === (role === "HOSPITAL_STAFF"));
-
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    if (!place) {
+      setError(`Search for your ${role === "HOSPITAL_STAFF" ? "hospital" : "blood centre"} and choose it`);
+      return;
+    }
     if (password !== confirm) {
       setError("The two passwords are different");
       return;
     }
     setBusy(true);
     try {
-      await api.signup({ username, displayName, password, role, facilityId });
+      await api.signup({
+        username,
+        displayName,
+        password,
+        role,
+        facilityId: place.facilityId ?? undefined,
+        directoryId: place.directoryId ?? undefined,
+      });
       setSent(true);
     } catch (err) {
       setError(errorText(err));
@@ -82,30 +91,14 @@ export function RequestAccount({ onBack }: { onBack: () => void }) {
           value={role}
           onChange={(e) => {
             setRole(e.target.value as JoinRole);
-            setFacilityId("");
+            setPlace(undefined);
           }}
         >
           <option value="HOSPITAL_STAFF">Hospital</option>
           <option value="CENTRE_STAFF">Blood centre</option>
         </select>
       </label>
-      <label>
-        {role === "HOSPITAL_STAFF" ? "Hospital" : "Blood centre"}
-        <select value={facilityId} onChange={(e) => setFacilityId(e.target.value)} required>
-          <option value="">Choose…</option>
-          {choices.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      {facilities && choices.length === 0 && (
-        <p className="login-help">
-          No {role === "HOSPITAL_STAFF" ? "hospitals" : "blood centres"} have been added yet. Ask your network
-          administrator.
-        </p>
-      )}
+      <PlaceSearch role={role} chosen={place} onChoose={setPlace} />
       <label>
         Password
         <input
@@ -130,14 +123,101 @@ export function RequestAccount({ onBack }: { onBack: () => void }) {
       <button className="btn dark" type="submit" disabled={busy}>
         {busy ? "Sending…" : "Send request"}
       </button>
-      {(error || loadError) && (
+      {error && (
         <p className="message error" role="alert">
-          {error || loadError}
+          {error}
         </p>
       )}
       <button className="btn ghost small" type="button" onClick={onBack}>
         Back to sign in
       </button>
     </form>
+  );
+}
+
+/** Type-ahead search for a hospital or blood centre; waits until typing pauses before asking the server. */
+function PlaceSearch({
+  role,
+  chosen,
+  onChoose,
+}: {
+  role: JoinRole;
+  chosen: Place | undefined;
+  onChoose: (place: Place | undefined) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Place[]>([]);
+  const [error, setError] = useState("");
+  const noun = role === "HOSPITAL_STAFF" ? "hospital" : "blood centre";
+
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(() => {
+      api
+        .places(role, query)
+        .then((found) => {
+          if (live) {
+            setResults(found);
+            setError("");
+          }
+        })
+        .catch((err: unknown) => live && setError(errorText(err)));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [role, query]);
+
+  if (chosen) {
+    return (
+      <div className="place-chosen">
+        <span>
+          <strong>{chosen.name}</strong>
+          {chosen.where && <span className="muted"> · {chosen.where}</span>}
+          {!chosen.onNetwork && <span className="muted"> · new to RaktSetu</span>}
+        </span>
+        <button className="btn ghost small" type="button" onClick={() => onChoose(undefined)}>
+          Change
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="place-search">
+      <label>
+        Your {noun}
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={role === "HOSPITAL_STAFF" ? "e.g. district hospital pune" : "e.g. red cross nagpur"}
+          autoComplete="off"
+        />
+      </label>
+      {error && <p className="message error">{error}</p>}
+      {results.length > 0 && (
+        <ul className="place-results" aria-label={`Matching ${noun}s`}>
+          {results.map((p) => (
+            <li key={p.facilityId ?? p.directoryId}>
+              <button type="button" onClick={() => onChoose(p)}>
+                <strong>{p.name}</strong>
+                <span className="muted">
+                  {p.where}
+                  {p.onNetwork ? " · on RaktSetu" : ""}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {query.trim().length >= 2 && results.length === 0 && !error && (
+        <p className="login-help">
+          No match. Try fewer words or the town name; the directory lists licensed blood centres and government
+          hospitals. If yours is missing, ask your network administrator to add it.
+        </p>
+      )}
+      <p className="login-help">Directory: National Health Portal (Government of India) open data.</p>
+    </div>
   );
 }

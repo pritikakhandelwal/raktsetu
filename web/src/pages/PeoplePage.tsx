@@ -113,7 +113,11 @@ export function PeoplePage(props: SectionProps & { me: User }) {
                     </td>
                     <td>{a.username}</td>
                     <td>{ROLE_LABELS[a.role]}</td>
-                    <td>{a.facilityId ? `${a.facilityId} · ${facilityName(a.facilityId)}` : ""}</td>
+                    <td>
+                      {a.facilityId
+                        ? `${a.facilityId} · ${facilityName(a.facilityId)}`
+                        : `${a.requestedFacility ?? ""} (new: added to the network when you approve)`}
+                    </td>
                     <td>{a.createdOn}</td>
                     <td className="row-actions">
                       <button className="btn dark small" type="button" onClick={() => decide(a, true)}>

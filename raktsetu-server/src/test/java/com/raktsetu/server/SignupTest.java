@@ -1,5 +1,6 @@
 package com.raktsetu.server;
 
+import com.raktsetu.server.db.DirectoryRepository;
 import com.raktsetu.server.security.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,6 +63,9 @@ class SignupTest {
     @Autowired
     JdbcClient jdbc;
 
+    @Autowired
+    DirectoryRepository directory;
+
     MockMvc mvc;
 
     @BeforeEach
@@ -79,6 +83,16 @@ class SignupTest {
         }).contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
+    private ResultActions directoryRequest(String address, String username, String role, String directoryId)
+            throws Exception {
+        String body = "{\"username\":\"" + username + "\",\"displayName\":\"Dr " + username + "\",\"password\":\""
+                + PASSWORD + "\",\"role\":\"" + role + "\",\"directoryId\":\"" + directoryId + "\"}";
+        return mvc.perform(post("/api/signup").with(csrf()).with(r -> {
+            r.setRemoteAddr(address);
+            return r;
+        }).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
     private ResultActions signIn(String username, String password) throws Exception {
         return mvc.perform(post("/api/auth/login").with(csrf()).with(r -> {
             r.setRemoteAddr("10.9.9.9");
@@ -88,11 +102,49 @@ class SignupTest {
     }
 
     @Test
-    void anyoneCanSeeWhichFacilitiesTheyCanJoin() throws Exception {
-        mvc.perform(get("/api/signup/facilities"))
+    void theDirectoryOfIndianBloodCentresAndHospitalsIsLoaded() {
+        assertThat(directory.count()).isGreaterThan(8_000);
+        assertThat(directory.find("BC1845")).get().extracting(DirectoryRepository.Entry::name)
+                .isEqualTo("KEM Hospital Blood Bank");
+    }
+
+    @Test
+    void searchingOffersNetworkFacilitiesThenTheDirectory() throws Exception {
+        mvc.perform(get("/api/signup/places").param("role", "HOSPITAL_STAFF"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].id", hasItem("H01")))
-                .andExpect(jsonPath("$[0].name").exists());
+                .andExpect(jsonPath("$[*].facilityId", hasItem("H01")))
+                .andExpect(jsonPath("$[0].onNetwork").value(true));
+        mvc.perform(get("/api/signup/places").param("role", "CENTRE_STAFF").param("q", "kem pune"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.directoryId == 'BC1845')].name").value(hasItem("KEM Hospital Blood Bank")))
+                .andExpect(jsonPath("$[?(@.directoryId == 'BC1845')].onNetwork").value(hasItem(false)));
+    }
+
+    @Test
+    void approvingSomeoneFromADirectoryHospitalAddsItToTheNetworkOnce() throws Exception {
+        directoryRequest("10.0.1.1", "dr.mehta", "HOSPITAL_STAFF", "HO83830")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.facilityId").isEmpty())
+                .andExpect(jsonPath("$.requestedFacility").value("District Hospital, Pune, Pune, Maharashtra"));
+        String json = mvc.perform(post("/api/users/dr.mehta/approve").with(user("admin").roles("ADMIN")).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.facilityId").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String facilityId = com.jayway.jsonpath.JsonPath.read(json, "$.facilityId");
+        assertThat(facilityId).startsWith("H");
+        assertThat(directory.networkFacility("HO83830")).contains(facilityId);
+
+        // A colleague from the same hospital now joins the network facility, which the search offers instead.
+        directoryRequest("10.0.1.2", "nurse.joshi", "HOSPITAL_STAFF", "HO83830")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.facilityId").value(facilityId));
+        mvc.perform(get("/api/signup/places").param("role", "HOSPITAL_STAFF").param("q", "district hospital pune"))
+                .andExpect(jsonPath("$[?(@.directoryId == 'HO83830')]").isEmpty())
+                .andExpect(jsonPath("$[*].facilityId", hasItem(facilityId)));
+
+        directoryRequest("10.0.1.3", "wrong.kind", "CENTRE_STAFF", "HO83830")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Centre staff must belong to a blood centre"));
     }
 
     @Test
