@@ -94,43 +94,30 @@ export function PeoplePage(props: SectionProps & { me: User }) {
             <p className="login-help">
               People who asked for an account from the sign-in page. Check you know them before approving.
             </p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Username</th>
-                  <th>Role</th>
-                  <th>Works at</th>
-                  <th>Asked on</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map((a) => (
-                  <tr key={a.username}>
-                    <td>
-                      <strong>{a.displayName}</strong>
-                    </td>
-                    <td>{a.username}</td>
-                    <td>{ROLE_LABELS[a.role]}</td>
-                    <td>
-                      {a.facilityId
-                        ? `${a.facilityId} · ${facilityName(a.facilityId)}`
-                        : `${a.requestedFacility ?? ""} (new: added to the network when you approve)`}
-                    </td>
-                    <td>{a.createdOn}</td>
-                    <td className="row-actions">
-                      <button className="btn dark small" type="button" onClick={() => decide(a, true)}>
-                        Approve
-                      </button>
-                      <button className="btn ghost small" type="button" onClick={() => decide(a, false)}>
-                        Reject
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ul className="join-requests">
+              {requests.map((a) => (
+                <li key={a.username}>
+                  <div>
+                    <strong>{a.displayName}</strong> <span className="muted">({a.username})</span>
+                  </div>
+                  <div>
+                    {ROLE_LABELS[a.role]} at{" "}
+                    {a.facilityId
+                      ? `${a.facilityId} · ${facilityName(a.facilityId)}`
+                      : `${a.requestedFacility ?? ""} (new: added to the network when you approve)`}
+                  </div>
+                  <div className="muted">Asked on {a.createdOn}</div>
+                  <div className="actions">
+                    <button className="btn dark small" type="button" onClick={() => decide(a, true)}>
+                      Approve
+                    </button>
+                    <button className="btn ghost small" type="button" onClick={() => decide(a, false)}>
+                      Reject
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         <div className="actions" style={{ marginBottom: 20 }}>
