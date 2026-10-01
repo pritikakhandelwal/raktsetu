@@ -4,3 +4,5 @@ web/node_modules/
 web/dist/
 raktsetu-data*/
 .git/
+dist/
+data/
