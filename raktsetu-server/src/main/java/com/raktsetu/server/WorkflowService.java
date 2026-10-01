@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
  * The day-to-day workflows between people: hospitals request blood and confirm receipt, centres dispatch it, the
  * network administrator plans and approves transfers, and everyone gets notifications about what needs their
  * attention. Every change goes through {@link NetworkService#change} so stock, the audit log and the workflow tables
- * are written in one transaction; all methods lock the same object as {@link NetworkService}.
+ * are written in one transaction; all methods use the same {@link NetworkLock} as {@link NetworkService}.
  */
 @Service
 public class WorkflowService {
@@ -80,7 +80,8 @@ public class WorkflowService {
                 BloodGroup.parse(input.group()), input.quantity(),
                 input.urgency() == null || input.urgency().isBlank() ? Urgency.EMERGENCY
                         : Urgency.parse(input.urgency()));
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             LocalDate today = network.today();
             network.network().facility(request.hospitalId());
             long[] id = new long[1];
@@ -111,18 +112,21 @@ public class WorkflowService {
                 throw e;
             }
             return view(id[0]);
-        }
+        });
     }
 
     public List<RequestView> requests(AppUser user) {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().readSafely(() -> {
             List<RequestRepository.Row> rows = switch (user.role()) {
                 case ADMIN -> requests.latest(null, null, LIST_LIMIT);
                 case HOSPITAL_STAFF -> requests.latest(user.facilityId(), null, LIST_LIMIT);
                 case CENTRE_STAFF -> requests.latest(null, user.facilityId(), LIST_LIMIT);
             };
-            return rows.stream().map(r -> view(r, requests.units(r.id()))).toList();
-        }
+            Map<Long, List<RequestRepository.UnitRow>> units = requests.units(
+                    rows.stream().map(RequestRepository.Row::id).toList());
+            return rows.stream().map(r -> view(r, units.getOrDefault(r.id(), List.of()))).toList();
+        });
     }
 
     /**
@@ -130,7 +134,8 @@ public class WorkflowService {
      * every part. When every part is on its way the hospital is told.
      */
     public RequestView dispatch(long id, AppUser user) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             RequestRepository.Row row = request(id);
             requireStatus(row, RequestRepository.Status.ALLOCATED);
             List<RequestRepository.UnitRow> units = requests.units(id);
@@ -151,22 +156,24 @@ public class WorkflowService {
                 }
             });
             return view(id);
-        }
+        });
     }
 
     public RequestView receive(long id, AppUser user) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             RequestRepository.Row row = request(id);
             user.requireActingFor(row.hospitalId(), Role.HOSPITAL_STAFF);
             requireStatus(row, RequestRepository.Status.DISPATCHED);
             requests.setStatus(id, RequestRepository.Status.RECEIVED, network.today());
             return view(id);
-        }
+        });
     }
 
     /** Cancels a request that has not been dispatched: its units go back on their shelves. */
     public RequestView cancel(long id, AppUser user) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             RequestRepository.Row row = request(id);
             user.requireActingFor(row.hospitalId(), Role.HOSPITAL_STAFF);
             requireStatus(row, RequestRepository.Status.ALLOCATED);
@@ -192,7 +199,7 @@ public class WorkflowService {
                 }
             });
             return view(id);
-        }
+        });
     }
 
     // ------------------------------------------------------------------ transfers
@@ -202,25 +209,28 @@ public class WorkflowService {
         if (strategy == null || strategy.isBlank()) {
             throw new IllegalArgumentException("strategy is required");
         }
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().writeSafely(() -> {
             List<TransferOrder> orders = network.engine().plan(strategy, network.network(), network.today());
             tx.executeWithoutResult(s -> {
                 transfers.supersedeProposed();
                 orders.forEach(transfers::insert);
             });
             return transfers();
-        }
+        });
     }
 
     public List<TransferView> transfers() {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().readSafely(() -> {
             return transfers.current(LIST_LIMIT).stream().map(WorkflowService::view).toList();
-        }
+        });
     }
 
     /** Approves a proposed transfer: the stock moves, and both centres are told. */
     public TransferView approve(String id, AppUser user) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             TransferRepository.Row row = transfer(id);
             if (row.status() != TransferRepository.Status.PROPOSED) {
                 throw new RaktSetuException("Transfer " + id + " is already " + row.status());
@@ -250,23 +260,25 @@ public class WorkflowService {
                         + ": " + row.units() + " from " + row.sourceId() + ". Confirm when it arrives.");
             });
             return view(transfer(id));
-        }
+        });
     }
 
     public TransferView reject(String id, AppUser user) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             TransferRepository.Row row = transfer(id);
             if (row.status() != TransferRepository.Status.PROPOSED) {
                 throw new RaktSetuException("Transfer " + id + " is already " + row.status());
             }
             transfers.decide(id, TransferRepository.Status.REJECTED, user.username(), network.today());
             return view(transfer(id));
-        }
+        });
     }
 
     /** The destination confirms an approved transfer arrived. */
     public TransferView receiveTransfer(String id, AppUser user) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        return network.lock().write(() -> {
             TransferRepository.Row row = transfer(id);
             user.requireActingFor(row.destinationId(), Role.CENTRE_STAFF);
             if (row.status() != TransferRepository.Status.APPROVED) {
@@ -274,17 +286,19 @@ public class WorkflowService {
             }
             transfers.markReceived(id, network.today());
             return view(transfer(id));
-        }
+        });
     }
 
     // ------------------------------------------------------------------ centres
 
     /** Removes a damaged unit from a centre's stock, recording why. */
     public void discard(String facilityId, String unitId, String reason) throws RaktSetuException {
-        synchronized (network) {
+        network.newDayIfNeeded();
+        network.lock().write(() -> {
             LocalDate today = network.today();
             network.change(() -> network.network().discardUnit(facilityId, unitId, reason, today));
-        }
+            return null;
+        });
     }
 
     // ------------------------------------------------------------------ notifications

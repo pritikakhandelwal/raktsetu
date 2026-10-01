@@ -16,7 +16,7 @@ alt unknown hospital
 end
 RequestService -> BloodNetwork : removeExpired(today)
 BloodNetwork -> AuditLogger : record(DISCARDED ...)
-RequestService -> BloodNetwork : storingFacilities() + route(...)
+RequestService -> BloodNetwork : storingNeighbours(hospital) + route(...)
 note right : keep centres within 90 min;\nsort by travel time,\nunverified data last
 RequestService -> DonorPreference : forRecipient(component, group)
 note right : identical first, then compatible;\nO- last for non-O- patients

@@ -17,13 +17,21 @@ import java.util.Objects;
 public abstract class BloodComponent implements Identifiable, ExpiryTracked, Transfusable {
 
     /** First-expiry-first-out order; ties broken by ID so the order is always deterministic. */
-    public static final Comparator<BloodComponent> FEFO =
-            Comparator.comparing(BloodComponent::getExpiryDate).thenComparing(BloodComponent::getId);
+    public static final Comparator<BloodComponent> FEFO = (a, b) -> {
+        int byExpiry = a.getExpiryDate().compareTo(b.getExpiryDate());
+        return byExpiry != 0 ? byExpiry : a.unitId.compareTo(b.unitId);
+    };
 
     private final String unitId;
     private final BloodGroup bloodGroup;
     private final LocalDate collectedOn;
     private final LocalDate expiryOverride;
+    /**
+     * Expiry, worked out on first use and then remembered: sorting stock by expiry asks for it many times. Safe to
+     * share between threads without locking, because {@link LocalDate} is immutable and every thread computes the
+     * same value.
+     */
+    private LocalDate expiry;
 
     /** A unit whose expiry follows the component's standard shelf life. */
     protected BloodComponent(String unitId, BloodGroup bloodGroup, LocalDate collectedOn) {
@@ -70,7 +78,12 @@ public abstract class BloodComponent implements Identifiable, ExpiryTracked, Tra
 
     @Override
     public final LocalDate getExpiryDate() {
-        return expiryOverride != null ? expiryOverride : standardExpiryDate();
+        LocalDate e = expiry;
+        if (e == null) {
+            e = expiryOverride != null ? expiryOverride : standardExpiryDate();
+            expiry = e;
+        }
+        return e;
     }
 
     /** Expiry from the standard shelf life, ignoring any explicit override. */

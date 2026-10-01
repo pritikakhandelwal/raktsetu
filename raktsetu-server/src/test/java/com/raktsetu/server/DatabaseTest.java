@@ -53,7 +53,8 @@ class DatabaseTest {
         TestFixtures.sampleNetwork(context);
         return new NetworkService(networkRepo, auditRepo, state, transferRepo,
                 context.getBean(com.raktsetu.server.db.NotificationRepository.class),
-                context.getBean(RouteService.class), jdbc, tx, context.getBean(java.time.Clock.class));
+                context.getBean(RouteService.class), jdbc, tx, context.getBean(java.time.Clock.class),
+                new AuditIntegrity(auditRepo));
     }
 
     @Test

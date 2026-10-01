@@ -18,7 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * The shared planning algorithm (Template Method pattern). Subclasses decide only two things: the order in which
@@ -55,16 +54,16 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
                 candidates.add(new Candidate(risk.facility(), unit, risk));
             }
         }
-        Map<String, Integer> sent = new HashMap<>();
+        Figures figures = new Figures(network, today);
         Map<Group, List<BloodComponent>> groups = new LinkedHashMap<>();
         Map<Group, String> reasons = new HashMap<>();
         for (Candidate c : order(candidates)) {
-            List<Destination> options = feasibleDestinations(c, network, sent, today);
+            List<Destination> options = feasibleDestinations(c, figures, today);
             if (options.isEmpty()) {
                 continue;
             }
             Destination d = choose(options);
-            sent.merge(key(d.facility(), c.unit()), 1, Integer::sum);
+            figures.state(d.facility(), c.unit().getType(), c.unit().getBloodGroup()).sent++;
             Group g = new Group(c.source(), d.facility(), d.route(), c.unit().getType(), c.unit().getBloodGroup());
             groups.computeIfAbsent(g, k -> new ArrayList<>()).add(c.unit());
             reasons.putIfAbsent(g, String.format(Locale.ROOT, "%s; %s can use about %d more before expiry",
@@ -87,33 +86,82 @@ public abstract class AbstractRedistributionStrategy implements RedistributionSt
     /** Picks one of the feasible destinations (never empty). */
     protected abstract Destination choose(List<Destination> options);
 
-    private List<Destination> feasibleDestinations(Candidate c, BloodNetwork network, Map<String, Integer> sent,
-                                                   LocalDate today) {
+    /**
+     * Only storing facilities with a route from the source are considered (the network's neighbour index), rather
+     * than every facility in the network, and their figures are looked up once per plan: planning time grows with
+     * the number of at-risk units times the number of nearby centres, not times the size of the whole network.
+     */
+    private static List<Destination> feasibleDestinations(Candidate c, Figures figures, LocalDate today) {
         List<Destination> options = new ArrayList<>();
         BloodComponent unit = c.unit();
-        for (Facility f : network.storingFacilities()) {
-            if (f.equals(c.source()) || Freshness.of(f, today) == Freshness.UNVERIFIED) {
-                continue;
-            }
-            Optional<Route> route = network.route(c.source().getId(), f.getId());
-            if (route.isEmpty()) {
-                continue;
-            }
-            long daysOnArrival = unit.daysToExpiry(today) - route.get().travelMinutes() / MINUTES_PER_DAY;
+        long daysLeft = unit.daysToExpiry(today);
+        for (Target t : figures.targets(c.source(), unit.getType(), unit.getBloodGroup())) {
+            long daysOnArrival = daysLeft - t.route().travelMinutes() / MINUTES_PER_DAY;
             if (daysOnArrival < 1) {
                 continue;
             }
-            double usage = network.usage().averageDaily(f.getId(), unit.getType(), unit.getBloodGroup(), today);
-            int stock = f.getInventory().countUsable(unit.getType(), unit.getBloodGroup(), today);
-            int spare = (int) Math.floor(usage * daysOnArrival) - stock - sent.getOrDefault(key(f, unit), 0);
+            SlotState state = t.state();
+            int spare = (int) Math.floor(state.usage * daysOnArrival) - state.stock - state.sent;
             if (spare > 0) {
-                options.add(new Destination(f, route.get(), spare));
+                options.add(new Destination(t.facility(), t.route(), spare));
             }
         }
         return options;
     }
 
-    private static String key(Facility f, BloodComponent unit) {
-        return f.getId() + "|" + unit.getType() + "|" + unit.getBloodGroup();
+    /** One facility's stock of one component and group. */
+    private record Slot(String facilityId, ComponentType component, BloodGroup group) {
+    }
+
+    /**
+     * A destination's figures for one component and group, shared by every unit that could go there. Usage and
+     * stock do not change while a plan is made (planning only proposes transfers; nothing moves); {@code sent}
+     * counts units this plan has already sent there.
+     */
+    private static final class SlotState {
+        final double usage;
+        final int stock;
+        int sent;
+
+        SlotState(double usage, int stock) {
+            this.usage = usage;
+            this.stock = stock;
+        }
+    }
+
+    /** A possible destination for units of one kind from one source. */
+    private record Target(Facility facility, Route route, SlotState state) {
+    }
+
+    /** What one plan looks up, each worked out once. */
+    private static final class Figures {
+        private final BloodNetwork network;
+        private final LocalDate today;
+        private final Map<Slot, SlotState> states = new HashMap<>();
+        private final Map<Slot, List<Target>> targets = new HashMap<>();
+
+        Figures(BloodNetwork network, LocalDate today) {
+            this.network = network;
+            this.today = today;
+        }
+
+        SlotState state(Facility f, ComponentType type, BloodGroup group) {
+            return states.computeIfAbsent(new Slot(f.getId(), type, group), k -> new SlotState(
+                    network.usage().averageDaily(f.getId(), type, group, today),
+                    f.getInventory().countUsable(type, group, today)));
+        }
+
+        /** Verified storing neighbours of {@code source} with a route from it, in data order. */
+        List<Target> targets(Facility source, ComponentType type, BloodGroup group) {
+            return targets.computeIfAbsent(new Slot(source.getId(), type, group), k -> {
+                List<Target> list = new ArrayList<>();
+                for (BloodNetwork.Neighbour n : network.storingNeighbours(source.getId())) {
+                    if (Freshness.of(n.facility(), today) != Freshness.UNVERIFIED) {
+                        list.add(new Target(n.facility(), n.route(), state(n.facility(), type, group)));
+                    }
+                }
+                return list;
+            });
+        }
     }
 }

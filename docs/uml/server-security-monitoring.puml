@@ -60,6 +60,19 @@ package monitoring {
   class Snapshot <<record>>
 }
 
+package concurrency {
+  class NetworkLock {
+    -lock : ReentrantReadWriteLock
+    +read(action) : T
+    +write(action) : T
+  }
+  class AuditIntegrity {
+    -verifiedTo : ChainPoint
+    +current() : Verification
+    +full() : Verification
+  }
+}
+
 class ApiErrors <<RestControllerAdvice>>
 class NetworkService
 class AuditRepository {
@@ -80,4 +93,7 @@ MeterBinder <|.. NetworkMetrics
 AuditChainHealthIndicator --> AuditRepository
 NetworkMetrics --> NetworkService
 NetworkMetrics *-- Snapshot
+NetworkService *-- NetworkLock : parallel reads, one write at a time
+NetworkService --> AuditIntegrity : overview check
+AuditIntegrity --> AuditRepository : verifyAfter(point)
 @enduml

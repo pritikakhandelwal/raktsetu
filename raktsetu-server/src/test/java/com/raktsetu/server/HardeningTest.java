@@ -172,4 +172,27 @@ class HardeningTest {
             jdbc.sql("update audit_log set note = ? where seq = 1").param(original).update();
         }
     }
+
+    @Test
+    void theOverviewChecksOnlyNewAuditEntriesAndTheFullCheckCatchesOldEdits() {
+        var integrity = new AuditIntegrity(audit);
+        int entries = audit.count();
+        assertThat(integrity.current().entries()).isEqualTo(entries);
+        assertThat(integrity.current().intact()).isTrue();
+
+        String original = jdbc.sql("select note from audit_log where seq = 1").query(String.class).optional()
+                .orElse(null);
+        jdbc.sql("update audit_log set note = 'edited later' where seq = 1").update();
+        try {
+            // Old entries were already verified: the quick check does not re-read them...
+            assertThat(integrity.current().intact()).isTrue();
+            // ...the full check does, and the quick check then keeps reporting the problem.
+            assertThat(integrity.full().intact()).isFalse();
+            assertThat(integrity.current().message()).contains("TAMPERED: entry 1");
+        } finally {
+            jdbc.sql("update audit_log set note = ? where seq = 1").param(original).update();
+        }
+        assertThat(integrity.full().intact()).isTrue();
+        assertThat(integrity.current().entries()).isEqualTo(entries);
+    }
 }

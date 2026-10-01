@@ -114,4 +114,43 @@ class InventoryTest {
         assertThatThrownBy(() -> inventory.issue(RED_CELLS, O_NEG, 0, TODAY))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void usableIsALiveViewInExpiryOrderWithoutExpiredUnits() {
+        inventory.add(new Platelets("OLD", A_POS, TODAY.minusDays(6)));   // expired
+        inventory.add(new Platelets("B", A_POS, TODAY.minusDays(1)));
+        inventory.add(new Platelets("A", A_POS, TODAY.minusDays(1)));     // same expiry: ID order
+        inventory.add(new Platelets("SOON", A_POS, TODAY.minusDays(4)));
+
+        assertThat(inventory.usable(PLATELETS, A_POS, TODAY)).extracting(BloodComponent::getId)
+                .containsExactly("SOON", "A", "B");
+        assertThat(inventory.countUsable(PLATELETS, A_POS, TODAY)).isEqualTo(3);
+        assertThat(inventory.usable(PLATELETS, A_POS, TODAY.plusDays(10))).isEmpty();
+        assertThat(inventory.usable(RED_CELLS, O_NEG, TODAY)).isEmpty();
+        assertThatThrownBy(() -> inventory.usable(PLATELETS, A_POS, TODAY).clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void removeExpiredSkipsWorkUntilSomethingCanExpireButNeverMissesANewUnit() {
+        addRedCells("R1", 10);                                   // expires in 32 days
+        assertThat(inventory.removeExpired(TODAY)).isEmpty();
+        // Added after the sweep with an earlier expiry: must still be found.
+        inventory.add(new Platelets("P1", A_POS, TODAY.minusDays(5)));
+        assertThat(inventory.removeExpired(TODAY)).extracting(BloodComponent::getId).containsExactly("P1");
+        assertThat(inventory.removeExpired(TODAY)).isEmpty();
+        assertThat(inventory.removeExpired(TODAY.plusDays(32))).extracting(BloodComponent::getId)
+                .containsExactly("R1");
+        assertThat(inventory.totalUnits()).isZero();
+        assertThat(inventory.removeExpired(TODAY.plusDays(400))).isEmpty();
+    }
+
+    @Test
+    void takingAnyUnitKeepsTheOrder() {
+        addRedCells("R1", 30);
+        addRedCells("R2", 20);
+        addRedCells("R3", 10);
+        assertThat(inventory.take("R2")).isPresent();
+        assertThat(inventory.units(RED_CELLS, O_NEG)).extracting(BloodComponent::getId).containsExactly("R1", "R3");
+    }
 }

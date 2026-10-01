@@ -19,6 +19,8 @@ import com.raktsetu.domain.model.WastageRecord;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +33,10 @@ import java.util.Optional;
  */
 public final class BloodNetwork {
 
+    /** A facility that stores blood, and the route to it from the facility it was looked up for. */
+    public record Neighbour(Facility facility, Route route) {
+    }
+
     private final Map<String, Facility> facilities = new LinkedHashMap<>();
     private final List<RouteEntry> routes;
     private final DistanceProvider distances;
@@ -38,6 +44,9 @@ public final class BloodNetwork {
     private final List<WastageRecord> wastage;
     private final AuditTrail audit;
     private long nextUnitSerial;
+    /** Facilities and routes are fixed once the network is built, so these are worked out once. */
+    private final List<Facility> storing;
+    private final Map<String, List<Neighbour>> storingNeighbours;
 
     public BloodNetwork(NetworkData data, AuditTrail audit) {
         for (Facility f : data.facilities()) {
@@ -51,6 +60,38 @@ public final class BloodNetwork {
         this.wastage = new ArrayList<>(data.wastage());
         this.audit = Objects.requireNonNull(audit, "audit");
         this.nextUnitSerial = data.nextUnitSerial();
+        this.storing = facilities.values().stream().filter(Facility::canStore).toList();
+        this.storingNeighbours = neighbourIndex();
+    }
+
+    /**
+     * For every facility, the storing facilities it has a route to, in data order. Built from the route table, so
+     * it costs time proportional to the number of routes, not to the square of the number of facilities.
+     */
+    private Map<String, List<Neighbour>> neighbourIndex() {
+        Map<String, Integer> order = new LinkedHashMap<>();
+        for (Facility f : facilities.values()) {
+            order.put(f.getId(), order.size());
+        }
+        Map<String, Map<String, Neighbour>> index = new HashMap<>();
+        for (RouteEntry e : routes) {
+            link(index, e.fromId(), e.toId());
+            link(index, e.toId(), e.fromId());
+        }
+        Map<String, List<Neighbour>> result = new HashMap<>();
+        index.forEach((from, byId) -> result.put(from, byId.values().stream()
+                .sorted(Comparator.comparingInt(n -> order.get(n.facility().getId())))
+                .toList()));
+        return result;
+    }
+
+    private void link(Map<String, Map<String, Neighbour>> index, String fromId, String toId) {
+        Facility to = facilities.get(toId);
+        if (to == null || !to.canStore() || !facilities.containsKey(fromId) || fromId.equals(toId)) {
+            return;
+        }
+        distances.route(fromId, toId).ifPresent(r -> index.computeIfAbsent(fromId, k -> new LinkedHashMap<>())
+                .putIfAbsent(toId, new Neighbour(to, r)));
     }
 
     /** @throws FacilityNotFoundException if no facility has this ID */
@@ -68,7 +109,15 @@ public final class BloodNetwork {
 
     /** Facilities that hold stock (hubs and storage centres), in data order. */
     public List<Facility> storingFacilities() {
-        return facilities.values().stream().filter(Facility::canStore).toList();
+        return storing;
+    }
+
+    /**
+     * Storing facilities reachable from {@code facilityId} by a known route (not including itself), in data order.
+     * Use this instead of checking a route to every storing facility.
+     */
+    public List<Neighbour> storingNeighbours(String facilityId) {
+        return storingNeighbours.getOrDefault(facilityId, List.of());
     }
 
     public Optional<Route> route(String fromId, String toId) {
