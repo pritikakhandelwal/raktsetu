@@ -190,6 +190,8 @@ export interface User {
   role: Role;
   facilityId: string | null;
   mustChangePassword: boolean;
+  phone: string | null;
+  alertsEnabled: boolean;
 }
 
 export interface Account {
@@ -198,8 +200,29 @@ export interface Account {
   role: Role;
   facilityId: string | null;
   enabled: boolean;
+  phone: string | null;
+  alertsEnabled: boolean;
   mustChangePassword: boolean;
   createdOn: string | null;
+}
+
+export type AlertStatus = "PENDING" | "SENT" | "FAILED";
+
+export interface AlertsView {
+  channels: { name: string; configured: boolean; active: boolean }[];
+  counts: Record<AlertStatus, number>;
+  recent: {
+    id: number;
+    username: string;
+    phone: string;
+    channel: string;
+    message: string;
+    status: AlertStatus;
+    attempts: number;
+    lastError: string | null;
+    createdAt: string;
+    sentAt: string | null;
+  }[];
 }
 
 export interface NewAccount {
@@ -296,8 +319,12 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     post<void>("/auth/password", { currentPassword, newPassword }),
   users: () => call<Account[]>("/users"),
-  createUser: (body: { username: string; displayName: string; role: Role; facilityId?: string }) =>
+  createUser: (body: { username: string; displayName: string; role: Role; facilityId?: string; phone?: string }) =>
     post<NewAccount>("/users", body),
+  updateContact: (phone: string, alertsEnabled: boolean) =>
+    call<Account>("/auth/contact", { method: "PUT", body: JSON.stringify({ phone, alertsEnabled }) }),
+  alerts: () => call<AlertsView>("/alerts"),
+  testAlert: () => post<{ queued: number; to: string; channels: string[] }>("/alerts/test"),
   resetPassword: (username: string) => post<NewAccount>(`/users/${encodeURIComponent(username)}/reset-password`),
   setEnabled: (username: string, enabled: boolean) =>
     post<Account>(`/users/${encodeURIComponent(username)}/enabled`, { enabled }),

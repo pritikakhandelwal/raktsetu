@@ -1,6 +1,8 @@
 package com.raktsetu.server.db;
 
+import com.raktsetu.server.alerts.AlertOutbox;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -24,17 +26,26 @@ public class NotificationRepository {
     }
 
     private final JdbcClient jdbc;
+    private final AlertOutbox alerts;
 
-    public NotificationRepository(JdbcClient jdbc) {
+    public NotificationRepository(JdbcClient jdbc, AlertOutbox alerts) {
         this.jdbc = jdbc;
+        this.alerts = alerts;
     }
 
-    /** @param facilityId the audience, or null for administrators */
+    /**
+     * Adds a notification and, for urgent kinds, queues SMS or WhatsApp alerts to the people in its audience who
+     * asked for them. Call inside the transaction of the change it reports, so both happen or neither does.
+     *
+     * @param facilityId the audience, or null for administrators
+     */
     public void add(LocalDate day, String facilityId, Kind kind, String message) {
+        GeneratedKeyHolder key = new GeneratedKeyHolder();
         jdbc.sql("insert into notification (created_on, facility_id, kind, message, is_read) values (?, ?, ?, ?, ?)")
                 .params(day, facilityId, kind.name(), message.length() > 500 ? message.substring(0, 497) + "..."
                         : message, false)
-                .update();
+                .update(key, "id");
+        alerts.enqueue(key.getKeyAs(Number.class).longValue(), facilityId, kind, message);
     }
 
     /** The newest notifications for an audience (null = administrators), newest first. */

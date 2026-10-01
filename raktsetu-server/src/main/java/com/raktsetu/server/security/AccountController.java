@@ -1,5 +1,6 @@
 package com.raktsetu.server.security;
 
+import com.raktsetu.server.security.AccountService.ContactInput;
 import com.raktsetu.server.security.AccountService.NewAccount;
 import com.raktsetu.server.security.AccountService.PasswordInput;
 import com.raktsetu.server.security.AccountService.SetupInput;
@@ -12,6 +13,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,6 +55,12 @@ public class AccountController {
     public ResponseEntity<Void> changePassword(@RequestBody PasswordInput input, Authentication auth) {
         accounts.changePassword(current.of(auth).username(), input);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Any signed-in person: their own mobile number and whether they want urgent alerts. */
+    @PutMapping("/auth/contact")
+    public UserView updateContact(@RequestBody ContactInput input, Authentication auth) {
+        return accounts.updateContact(current.of(auth).username(), input);
     }
 
     @GetMapping("/users")

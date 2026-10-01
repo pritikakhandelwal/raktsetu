@@ -98,6 +98,24 @@ Options: `--raktsetu.data-dir=...` chooses where the embedded database lives; `-
 turns off online route lookups; `--server.port=...` changes the port. Back up the data folder; deleting it starts
 afresh with the setup page.
 
+**Urgent alerts (SMS and WhatsApp):** anyone can add a mobile number on their Account page (admins can add one
+when creating a person). Requests to dispatch, blood on its way, and requests that could not be met are then also
+sent to the phone, so an emergency does not wait for someone to open the site. Alerts are written to an outbox in
+the same transaction as the change, then sent in the background with retries (30 s, 1 min, 2 min, ... up to 5
+tries); administrators see delivery status on the People page, and anyone can send themselves a test alert.
+With no provider configured, alerts are only written to the server log. To send real messages, set environment
+variables before starting the server (never put keys in files you commit):
+
+```bash
+# SMS through Twilio
+export RAKTSETU_ALERTS_SMS_ACCOUNT_SID=AC...
+export RAKTSETU_ALERTS_SMS_AUTH_TOKEN=...
+export RAKTSETU_ALERTS_SMS_FROM=+1...            # your Twilio number
+# and/or WhatsApp through Meta's Cloud API (needs an approved template "raktsetu_alert" with one body parameter)
+export RAKTSETU_ALERTS_WHATSAPP_PHONE_NUMBER_ID=...
+export RAKTSETU_ALERTS_WHATSAPP_TOKEN=...
+```
+
 **Monitoring and API docs:**
 
 - `/actuator/health` is public and reports DOWN if the audit log has been tampered with. Administrators also see
@@ -139,6 +157,8 @@ only change their password until they do; changes need the `X-XSRF-TOKEN` header
 | `POST /api/compatibility`, `GET /api/strategies`, `/strategies/compare` | Signed in | Tools |
 | `POST /api/facilities`, `PUT /api/facilities/{id}`, `GET /api/facilities/{id}/routes`, `PUT /api/routes/{from}/{to}` | Admin | Facilities and routes |
 | `GET/POST /api/users`; `POST /api/users/{u}/reset-password`, `/enabled` | Admin | Accounts |
+| `PUT /api/auth/contact`; `POST /api/alerts/test` | Signed in | Your mobile number and alert setting; a test alert (once a minute) |
+| `GET /api/alerts` | Admin | Alert channels and recent deliveries (numbers masked) |
 
 Errors come back as `{"error": ..., "message": ...}`: 400 bad input, 401 not signed in, 403 not allowed for this
 account, 404 unknown facility, 409 refused (for example not enough stock), 429 too many failed sign-ins.

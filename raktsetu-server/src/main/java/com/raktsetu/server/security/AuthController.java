@@ -30,7 +30,8 @@ public class AuthController {
     }
 
     /** Who is signed in, and whether they must choose a new password first. */
-    public record Me(String username, String displayName, Role role, String facilityId, boolean mustChangePassword) {
+    public record Me(String username, String displayName, Role role, String facilityId, boolean mustChangePassword,
+                     String phone, boolean alertsEnabled) {
     }
 
     private final AuthenticationManager authentication;
@@ -49,7 +50,7 @@ public class AuthController {
     private ResponseEntity<?> me(String username) {
         return users.find(username).filter(UserRepository.Account::enabled)
                 .<ResponseEntity<?>>map(a -> ResponseEntity.ok(new Me(a.user().username(), a.user().displayName(),
-                        a.user().role(), a.user().facilityId(), a.mustChangePassword())))
+                        a.user().role(), a.user().facilityId(), a.mustChangePassword(), a.phone(), a.alertsEnabled())))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(new ApiError("Unauthorized", "Not signed in")));
     }

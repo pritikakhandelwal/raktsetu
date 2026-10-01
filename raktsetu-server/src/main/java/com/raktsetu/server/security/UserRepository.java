@@ -11,9 +11,14 @@ import java.util.Optional;
 @Repository
 public class UserRepository {
 
-    /** An account with its password hash and status. */
+    /**
+     * An account with its password hash and status.
+     *
+     * @param phone         mobile number for urgent alerts (E.164), or null
+     * @param alertsEnabled whether the person wants urgent alerts on that number
+     */
     public record Account(AppUser user, String passwordHash, boolean enabled, boolean mustChangePassword,
-                          LocalDate createdOn) {
+                          LocalDate createdOn, String phone, boolean alertsEnabled) {
     }
 
     private final JdbcClient jdbc;
@@ -54,6 +59,11 @@ public class UserRepository {
                 .params(passwordHash, mustChangePassword, username).update();
     }
 
+    public void setContact(String username, String phone, boolean alertsEnabled) {
+        jdbc.sql("update app_user set phone = ?, alerts_enabled = ? where username = ?")
+                .params(phone, alertsEnabled && phone != null, username).update();
+    }
+
     public void setEnabled(String username, boolean enabled) {
         jdbc.sql("update app_user set enabled = ? where username = ?").params(enabled, username).update();
     }
@@ -62,6 +72,6 @@ public class UserRepository {
         return new Account(new AppUser(rs.getString("username"), rs.getString("display_name"),
                 Role.valueOf(rs.getString("role")), rs.getString("facility_id")), rs.getString("password_hash"),
                 rs.getBoolean("enabled"), rs.getBoolean("must_change_password"),
-                rs.getObject("created_on", LocalDate.class));
+                rs.getObject("created_on", LocalDate.class), rs.getString("phone"), rs.getBoolean("alerts_enabled"));
     }
 }

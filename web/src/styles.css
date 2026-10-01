@@ -1755,3 +1755,30 @@ tr.muted-row td {
     grid-column: 1 / -1;
   }
 }
+
+/* ---------- Urgent alerts ---------- */
+
+.alerts-panel {
+  margin-top: 24px;
+}
+
+.muted {
+  color: var(--muted-light);
+}
+
+.small-text {
+  font-size: 12px;
+}
+
+label.check-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+}
+
+label.check-label input {
+  width: auto;
+}

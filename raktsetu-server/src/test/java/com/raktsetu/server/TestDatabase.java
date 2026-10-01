@@ -13,6 +13,8 @@ final class TestDatabase {
     }
 
     static void register(DynamicPropertyRegistry registry, String name) {
+        // Tests send queued alerts themselves (AlertDispatcher.deliverDue), so the background pass must not race them.
+        registry.add("raktsetu.alerts.poll-ms", () -> "3600000");
         String postgres = System.getenv("RAKTSETU_TEST_DB_URL");
         if (postgres == null || postgres.isBlank()) {
             registry.add("spring.datasource.url",
