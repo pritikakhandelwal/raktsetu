@@ -191,7 +191,7 @@ function PlaceSearch({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={role === "HOSPITAL_STAFF" ? "e.g. district hospital pune" : "e.g. red cross nagpur"}
+          placeholder={role === "HOSPITAL_STAFF" ? "e.g. district hospital pune" : "e.g. kem hospital pune"}
           autoComplete="off"
         />
       </label>

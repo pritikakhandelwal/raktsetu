@@ -17,6 +17,7 @@ Writes raktsetu-server/src/main/resources/directory/india-facilities.csv.gz
 
 import csv
 import gzip
+import html
 import io
 import json
 import os
@@ -73,7 +74,7 @@ def query(layer, where, fields):
 def clean(text, limit):
     if text is None:
         return ""
-    text = re.sub(r"\s+", " ", str(text)).strip().strip(",").strip()
+    text = re.sub(r"\s+", " ", html.unescape(str(text))).strip().strip(",").strip()
     return "" if text.upper() in ("NA", "N/A", "NULL", "0", "-") else text[:limit]
 
 
