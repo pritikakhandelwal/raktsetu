@@ -29,10 +29,23 @@ production-quality system. The full plan is in
 |---|---|
 | Java source code | Done: 7 Maven modules + React front end, 189 Java tests, 80% coverage gate per module |
 | UML design documents | Done: 8 diagrams in [`docs/uml`](docs/uml) |
-| Executable project | Done: web app and console JARs (see [Releases](https://github.com/pritikakhandelwal/raktsetu/releases)); one-click Windows package planned |
+| Executable project | Done: one-click Windows app with Java included, plus web and console JARs ([Releases](https://github.com/pritikakhandelwal/raktsetu/releases)) |
 | Project report | Drafted; the PDF will be added to `docs/` at submission |
 | PowerPoint presentation | Drafted (10 slides) |
 | Final demonstration | Script ready (first-run setup to a delivered request and an approved transfer) |
+
+## Download for Windows (no installation)
+
+Download `RaktSetu-<version>-windows.zip` from [Releases](https://github.com/pritikakhandelwal/raktsetu/releases),
+unzip it anywhere, and double-click:
+
+- **`RaktSetu.exe`**: the web app. Your browser opens http://localhost:8080 after about 20 seconds; the first visit
+  creates the administrator. Data is kept in `RaktSetu\data` in your user folder. Close the window to stop it.
+- **`RaktSetu Console.exe`**: the console app (course V1).
+
+Java is included. If SmartScreen warns about an unrecognised app, choose "More info", then "Run anyway" (the app is
+not signed with a paid certificate). To rebuild the package: `powershell -ExecutionPolicy Bypass -File
+tools\package-windows.ps1` (needs JDK 21+).
 
 ## Quick start
 

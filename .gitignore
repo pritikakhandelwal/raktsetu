@@ -30,3 +30,4 @@ raktsetu-data/
 web/node_modules/
 web/dist/
 raktsetu-data-web/
+dist/
