@@ -20,6 +20,9 @@ import java.util.List;
 @Repository
 public class AuditRepository {
 
+    /** The most entries one page of the audit log returns, so a request cannot load the whole log at once. */
+    public static final int MAX_PAGE = 500;
+
     /** Result of checking the chain. */
     public record Verification(boolean intact, int entries, String message) {
     }
@@ -55,9 +58,10 @@ public class AuditRepository {
         return jdbc.sql("select count(*) from audit_log").query(Integer.class).single();
     }
 
-    /** The newest {@code limit} entries, newest first. */
+    /** The newest entries, newest first: at least 1 and at most {@value #MAX_PAGE}, whatever is asked for. */
     public List<AuditRecord> latest(int limit) {
-        return jdbc.sql("select * from audit_log order by seq desc limit ?").param(Math.max(1, limit))
+        return jdbc.sql("select * from audit_log order by seq desc limit ?")
+                .param(Math.max(1, Math.min(limit, MAX_PAGE)))
                 .query((rs, n) -> new AuditRecord(rs.getLong("seq"), new AuditEvent(
                         rs.getObject("event_day", LocalDate.class), AuditEventType.valueOf(rs.getString("type")),
                         rs.getString("facility_id"), rs.getString("counterparty"),

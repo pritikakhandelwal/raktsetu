@@ -20,6 +20,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 /**
  * Session-based sign-in for the single-page app. Every {@code /api} call needs a signed-in user except signing in
@@ -31,16 +32,29 @@ import org.springframework.security.web.csrf.CsrfFilter;
 @Configuration
 public class SecurityConfig {
 
+    /**
+     * Only this site's own scripts run; the map tiles are the one outside resource. Inline styles are allowed because
+     * React and the map set element styles directly.
+     */
+    static final String CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self'; "
+            + "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; "
+            + "connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; "
+            + "frame-ancestors 'none'";
+
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, SecurityContextRepository contexts, UserRepository users)
             throws Exception {
         http
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/auth/login", "/api/auth/me", "/api/setup").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/me", "/api/setup", "/api/privacy").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").hasRole(Role.ADMIN.name())
                         .anyRequest().permitAll())
+                .headers(h -> h
+                        .contentSecurityPolicy(c -> c.policyDirectives(CONTENT_SECURITY_POLICY))
+                        .referrerPolicy(r -> r.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicyHeader(p -> p.policy("camera=(), microphone=(), geolocation=()")))
                 .csrf(c -> c.spa())
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 .addFilterAfter(new PasswordChangeFilter(users), AuthorizationFilter.class)

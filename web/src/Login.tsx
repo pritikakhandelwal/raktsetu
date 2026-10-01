@@ -71,7 +71,7 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
           )}
           <p className="login-help">
             No account yet, or forgotten your password? Ask your network administrator; they will give you a
-            one-time password.
+            one-time password. <a href="#/privacy">Privacy notice</a>
           </p>
         </form>
       </div>

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api, type User } from "../api";
 import { ChangePasswordForm } from "./ChangePassword";
 import { SectionHead, errorText, type SectionProps } from "../shared";
+import { Link } from "../router";
 
 const ROLE_LABELS: Record<User["role"], string> = {
   ADMIN: "Network administrator",
@@ -33,6 +34,7 @@ export function AccountPage({ user, notify }: SectionProps & { user: User }) {
           <ChangePasswordForm onDone={() => notify("Your password has been changed.", true)} />
         </div>
         <UrgentAlerts user={user} notify={notify} />
+        <YourData user={user} notify={notify} />
       </div>
     </section>
   );
@@ -88,6 +90,10 @@ function UrgentAlerts({ user, notify }: { user: User; notify: SectionProps["noti
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Send me urgent alerts
         </label>
+        <p className="login-help full">
+          Turning alerts on means you agree to RaktSetu keeping your number to send them, as the{" "}
+          <Link to="/privacy">privacy notice</Link> explains. Turning them off deletes your number.
+        </p>
         <div className="full actions">
           <button className="btn dark" type="submit" disabled={busy}>
             {busy ? "Saving…" : "Save"}
@@ -100,5 +106,42 @@ function UrgentAlerts({ user, notify }: { user: User; notify: SectionProps["noti
         </div>
       </div>
     </form>
+  );
+}
+
+/** A copy of everything RaktSetu holds about you, as a file (the right of access under the DPDP Act). */
+function YourData({ user, notify }: { user: User; notify: SectionProps["notify"] }) {
+  const [busy, setBusy] = useState(false);
+
+  async function download() {
+    setBusy(true);
+    try {
+      const data = await api.myData();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `raktsetu-my-data-${user.username}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      notify(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel on-light alerts-panel">
+      <h3>Your data</h3>
+      <p className="login-help">
+        Download a copy of everything RaktSetu holds about you. See the <Link to="/privacy">privacy notice</Link> for
+        what is kept, why, and how to have it corrected or erased.
+      </p>
+      <div className="actions">
+        <button className="btn dark" type="button" onClick={download} disabled={busy}>
+          {busy ? "Preparing…" : "Download my data"}
+        </button>
+      </div>
+    </div>
   );
 }

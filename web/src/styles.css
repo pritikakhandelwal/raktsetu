@@ -1782,3 +1782,32 @@ label.check-label {
 label.check-label input {
   width: auto;
 }
+
+/* Privacy notice: a readable column of text. */
+.wrap.narrow {
+  max-width: 820px;
+}
+
+.panel.prose h3 {
+  font-size: 24px;
+  margin: 28px 0 10px;
+}
+
+.panel.prose h3:first-child {
+  margin-top: 0;
+}
+
+.prose p,
+.prose li {
+  line-height: 1.6;
+}
+
+.prose ul {
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+
+.footer a {
+  color: inherit;
+}
