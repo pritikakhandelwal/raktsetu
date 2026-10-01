@@ -2,6 +2,9 @@
 
 **Expiry-aware blood redistribution network.**
 
+**Live demo: https://raktsetu-ubvx.onrender.com** (free hosting: after a quiet spell the first visit takes about a
+minute to wake up). Accounts are created by the network administrator; there is no public sign-up.
+
 India's e-Raktkosh answers *"Where is blood available?"* RaktSetu answers *"Which units will expire unused, where
 should they go now, and how sure are we, given that stock reports are often out of date?"*
 
@@ -21,7 +24,7 @@ production-quality system. The full plan is in
 | 1 Course core (V1) | 16-option console app, persistence, allocation, strategies, simulator | **Done** |
 | 2 Digital twin and forecasting | Twin with true vs reported stock, Pune pilot network with road routes, six demand forecasters, 20-replication study | **Done** ([findings](docs/research/forecasting/findings.md)) |
 | 3–4 Research | Stale-data-aware optimiser, reporting-compliance experiments, calibration with real data, paper | Planned |
-| 5 System (V3) | Spring Boot server, database, sign-in and roles, workflows, notifications, SMS/WhatsApp alerts, monitoring, API docs, benchmarked and load-tested | **Working product** (e-Raktkosh/FHIR integration and hosting still to do) |
+| 5 System (V3) | Spring Boot server, database, sign-in and roles, workflows, notifications, SMS/WhatsApp alerts, monitoring, API docs, benchmarked and load-tested | **Working product, [live](https://raktsetu-ubvx.onrender.com)** (e-Raktkosh/FHIR integration still to do) |
 
 ### Course deliverables
 
