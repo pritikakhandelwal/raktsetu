@@ -3,7 +3,8 @@
 **Expiry-aware blood redistribution network.**
 
 **Live demo: https://raktsetu-ubvx.onrender.com** (free hosting: after a quiet spell the first visit takes about a
-minute to wake up). Accounts are created by the network administrator; there is no public sign-up.
+minute to wake up). Staff can request an account from the sign-in page; a network administrator approves each
+request before it can be used.
 
 India's e-Raktkosh answers *"Where is blood available?"* RaktSetu answers *"Which units will expire unused, where
 should they go now, and how sure are we, given that stock reports are often out of date?"*
