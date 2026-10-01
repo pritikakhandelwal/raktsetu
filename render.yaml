@@ -1,0 +1,37 @@
+# Render Blueprint: deploys RaktSetu's web app on Render's free plan. The database is a free Neon PostgreSQL
+# (never expires); paste its details when Render asks. Guide: docs/deploy/render-neon.md
+services:
+  - type: web
+    name: raktsetu
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: postgres,prod
+      # Render sends traffic to this port.
+      - key: PORT
+        value: "8080"
+      # From Neon's connection details, e.g. jdbc:postgresql://ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+      # (the direct address, not the -pooler one)
+      - key: RAKTSETU_DB_URL
+        sync: false
+      - key: RAKTSETU_DB_USER
+        sync: false
+      - key: RAKTSETU_DB_PASSWORD
+        sync: false
+      # Shown in the privacy notice.
+      - key: RAKTSETU_PRIVACY_ORGANISATION
+        sync: false
+      - key: RAKTSETU_PRIVACY_CONTACT
+        sync: false
+      # Fit in the free plan's 512 MB.
+      - key: JAVA_TOOL_OPTIONS
+        value: -XX:MaxRAMPercentage=65 -XX:+UseSerialGC -Xss512k -XX:ReservedCodeCacheSize=48m -XX:TieredStopAtLevel=1
+      - key: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+        value: "5"
+      - key: SERVER_TOMCAT_THREADS_MAX
+        value: "40"
