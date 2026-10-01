@@ -46,7 +46,8 @@ public class SecurityConfig {
             throws Exception {
         http
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/auth/login", "/api/auth/me", "/api/setup", "/api/privacy").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/me", "/api/setup", "/api/privacy", "/api/signup",
+                                "/api/signup/facilities").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").hasRole(Role.ADMIN.name())

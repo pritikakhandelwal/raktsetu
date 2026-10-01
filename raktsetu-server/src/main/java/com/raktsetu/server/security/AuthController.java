@@ -10,6 +10,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
@@ -38,13 +39,15 @@ public class AuthController {
     private final SecurityContextRepository contexts;
     private final UserRepository users;
     private final LoginGuard guard;
+    private final PasswordEncoder encoder;
 
     public AuthController(AuthenticationManager authentication, SecurityContextRepository contexts,
-                          UserRepository users, LoginGuard guard) {
+                          UserRepository users, LoginGuard guard, PasswordEncoder encoder) {
         this.authentication = authentication;
         this.contexts = contexts;
         this.users = users;
         this.guard = guard;
+        this.encoder = encoder;
     }
 
     private ResponseEntity<?> me(String username) {
@@ -70,6 +73,12 @@ public class AuthController {
                     username, input.password()));
         } catch (AuthenticationException e) {
             guard.failed(username, address);
+            boolean waiting = users.find(username).filter(UserRepository.Account::pending)
+                    .filter(a -> encoder.matches(input.password(), a.passwordHash())).isPresent();
+            if (waiting) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError("PendingApproval",
+                        "Your request to join is waiting for a network administrator to approve it"));
+            }
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ApiError("BadCredentials", "Wrong username or password, or the account is disabled"));
         }

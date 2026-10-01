@@ -14,13 +14,15 @@ import org.springframework.stereotype.Component;
 /**
  * Slows down password guessing. Two policies apply to every sign-in: one per username (5 failures in 15 minutes
  * locks that account) and one per client address (20 failures in 15 minutes locks that address, which stops one
- * machine trying many usernames). An administrator's password reset clears the account's lock.
+ * machine trying many usernames). An administrator's password reset clears the account's lock. Requests to join
+ * have their own limit: 5 per address per hour.
  */
 @Component
 public class LoginGuard {
 
     private final LoginAttemptPolicy perUser;
     private final LoginAttemptPolicy perAddress;
+    private final LoginAttemptPolicy signupsPerAddress = new SlidingWindowAttemptPolicy(5, Duration.ofHours(1));
     private final Clock clock;
     private final Counter failed;
     private final Counter refused;
@@ -52,6 +54,17 @@ public class LoginGuard {
             refused.increment();
             throw new TooManyAttemptsException(wait.get());
         }
+    }
+
+    /** Counts a request to join from this address; throws {@link TooManyAttemptsException} beyond the limit. */
+    public void signup(String address) {
+        var now = clock.instant();
+        Optional<Duration> wait = signupsPerAddress.lockedFor(address, now);
+        if (wait.isPresent()) {
+            refused.increment();
+            throw new TooManyAttemptsException(wait.get());
+        }
+        signupsPerAddress.recordFailure(address, now);
     }
 
     public void failed(String username, String address) {

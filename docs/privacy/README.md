@@ -12,6 +12,7 @@ dates from which each duty applies, because the Rules bring them into force in p
 | Data | About | Where | Why | Lawful basis | Kept for |
 |---|---|---|---|---|---|
 | Name, username, role, facility | Staff | `app_user` | Sign-in; staff act only for their own facility | Employment (legitimate use, s. 7) | While the account is in use; erased on request when the person leaves |
+| Requests to join (name, username, role, facility, password hash) | People asking for an account | `app_user` (`pending`) | So an administrator can approve or reject the request | Steps at the person's request (s. 7) | Until approved; deleted when rejected |
 | Password hash (BCrypt) | Staff | `app_user` | Sign-in | Employment | As above |
 | Mobile number | Staff, optional | `app_user` | Urgent SMS/WhatsApp alerts only | Consent (s. 6), or employment if an administrator adds it | Until alerts are turned off, which deletes it |
 | Alert records (number, text, status) | Staff | `alert_outbox` | Delivery and retries; showing administrators failures | As for the number | 90 days (`raktsetu.privacy.alert-retention-days`), then deleted daily |
