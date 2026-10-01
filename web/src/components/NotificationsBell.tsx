@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type NotificationList } from "../api";
 import { errorText } from "../shared";
+import { navigate } from "../router";
 
 const POLL_MS = 30_000;
 
@@ -14,6 +15,11 @@ const KIND_LABELS: Record<string, string> = {
   EXPIRING_SOON: "Expiring soon",
   REPORT_OVERDUE: "Report overdue",
   ACCOUNT_REQUESTED: "Request to join",
+};
+
+/** Notifications that open the page where you act on them. */
+const PAGE_FOR_KIND: Record<string, string> = {
+  ACCOUNT_REQUESTED: "/people",
 };
 
 /** The bell in the header: unread count, and a panel of the latest notifications. Refreshes every 30 seconds. */
@@ -102,7 +108,18 @@ export function NotificationsBell({ rev, notify }: { rev: number; notify: (messa
             <ul>
               {data.items.map((n) => (
                 <li key={n.id} className={n.read ? "read" : undefined}>
-                  <button type="button" onClick={() => !n.read && markRead(n.id)} disabled={n.read}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!n.read) void markRead(n.id);
+                      const to = PAGE_FOR_KIND[n.kind];
+                      if (to) {
+                        setOpen(false);
+                        navigate(to);
+                      }
+                    }}
+                    disabled={n.read && !PAGE_FOR_KIND[n.kind]}
+                  >
                     <span className="bell-kind">{KIND_LABELS[n.kind] ?? n.kind}</span>
                     <span className="bell-message">{n.message}</span>
                     <span className="bell-date">{n.createdOn}</span>

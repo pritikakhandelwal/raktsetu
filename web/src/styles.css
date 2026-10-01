@@ -1865,3 +1865,91 @@ label.check-label input {
   border: 1px solid rgba(0, 0, 0, 0.15);
   border-radius: 8px;
 }
+
+/* Requests to join on the People page: one card each, so the buttons fit on a phone. */
+.join-requests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.join-requests li {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}
+
+.join-requests .muted {
+  font-size: 12px;
+  color: var(--muted-light);
+}
+
+/* ------------------------------------------------------------ phone menu */
+
+.menu-button,
+.phone-menu {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .menu-button {
+    display: inline-flex;
+    padding: 8px 14px;
+    border: 1px solid var(--line-dark);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--white);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .phone-menu {
+    display: block;
+    border-top: 1px solid var(--line-dark);
+  }
+
+  .phone-menu ul {
+    list-style: none;
+    margin: 0;
+    padding: 8px 16px 16px;
+  }
+
+  .phone-menu a,
+  .phone-menu button {
+    display: block;
+    width: 100%;
+    padding: 12px 4px;
+    border: 0;
+    border-bottom: 1px solid var(--line-dark);
+    background: transparent;
+    color: var(--muted-dark);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .phone-menu a.active {
+    color: var(--white);
+  }
+}
+
+@media (max-width: 560px) {
+  /* Room for the logo, bell and Menu button on a small phone. */
+  .nav .wrap {
+    gap: 12px;
+  }
+  .day > span {
+    display: none;
+  }
+}

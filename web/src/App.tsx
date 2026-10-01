@@ -115,6 +115,10 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const changed = useCallback(() => setRev((r) => r + 1), []);
   const notify = useCallback((message: string, ok = false) => setToast({ message, ok }), []);
   const { data: summary, error } = useLoad<Summary>(api.summary, [rev]);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // The phone menu closes once a page is chosen.
+  useEffect(() => setMenuOpen(false), [route]);
 
   useEffect(() => {
     if (!toast) return;
@@ -163,8 +167,40 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
             <button className="btn ghost small" type="button" onClick={onSignOut}>
               Sign out
             </button>
+            <button
+              className="menu-button"
+              type="button"
+              aria-expanded={menuOpen}
+              aria-controls="phone-menu"
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              {menuOpen ? "Close" : "Menu"}
+            </button>
           </div>
         </div>
+        {menuOpen && (
+          <nav id="phone-menu" className="phone-menu" aria-label="Pages">
+            <ul>
+              {pages.map(([path, label]) => (
+                <li key={path}>
+                  <Link to={path} className={page === path ? "active" : undefined}>
+                    {label}
+                  </Link>
+                </li>
+              ))}
+              <li>
+                <Link to="/account" className={page === "/account" ? "active" : undefined}>
+                  Your account ({user.username})
+                </Link>
+              </li>
+              <li>
+                <button type="button" onClick={onSignOut}>
+                  Sign out
+                </button>
+              </li>
+            </ul>
+          </nav>
+        )}
       </header>
 
       <main id="main" key={page}>
@@ -219,7 +255,17 @@ function hospitalPage(route: string): HospitalPage {
   return route === "/requests" ? "requests" : route === "/availability" ? "availability" : "home";
 }
 
-function AdminPage({ page, props, user, summary }: { page: string; props: SectionProps; user: User; summary: Summary }) {
+function AdminPage({
+  page,
+  props,
+  user,
+  summary,
+}: {
+  page: string;
+  props: SectionProps;
+  user: User;
+  summary: Summary;
+}) {
   let content: ReactNode;
   switch (page) {
     case "/requests":
