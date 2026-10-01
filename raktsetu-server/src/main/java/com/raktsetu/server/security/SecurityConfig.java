@@ -23,7 +23,8 @@ import org.springframework.security.web.csrf.CsrfFilter;
 
 /**
  * Session-based sign-in for the single-page app. Every {@code /api} call needs a signed-in user except signing in
- * and first-time setup; unauthenticated calls get 401 (not a redirect). Accounts with a one-time password can only
+ * and first-time setup; unauthenticated calls get 401 (not a redirect). Health checks and the API documentation are
+ * public; metrics are for administrators. Accounts with a one-time password can only
  * change their password until they do. CSRF protection uses the standard single-page-app setup: the
  * token is in the {@code XSRF-TOKEN} cookie and the front end echoes it in the {@code X-XSRF-TOKEN} header.
  */
@@ -37,6 +38,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/auth/login", "/api/auth/me", "/api/setup").permitAll()
                         .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/**").hasRole(Role.ADMIN.name())
                         .anyRequest().permitAll())
                 .csrf(c -> c.spa())
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)

@@ -19,6 +19,7 @@ import com.raktsetu.server.ApiModels.Summary;
 import com.raktsetu.server.ApiModels.WastageView;
 import com.raktsetu.server.security.CurrentUsers;
 import com.raktsetu.server.security.Role;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,6 +39,7 @@ import java.util.List;
  * Errors are mapped by {@link ApiErrors}.
  */
 @RestController
+@Tag(name = "Network", description = "Facilities, stock, risks, routes, strategies and the audit log")
 @RequestMapping("/api")
 public class ApiController {
 

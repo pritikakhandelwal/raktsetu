@@ -5,6 +5,7 @@ import com.raktsetu.server.security.AccountService.PasswordInput;
 import com.raktsetu.server.security.AccountService.SetupInput;
 import com.raktsetu.server.security.AccountService.UserInput;
 import com.raktsetu.server.security.AccountService.UserView;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -20,6 +21,7 @@ import java.util.Map;
 
 /** First-time setup, account administration and changing your own password. */
 @RestController
+@Tag(name = "Accounts", description = "First-run setup, staff accounts and passwords")
 @RequestMapping("/api")
 public class AccountController {
 

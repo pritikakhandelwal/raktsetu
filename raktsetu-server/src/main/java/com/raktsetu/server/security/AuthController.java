@@ -1,6 +1,7 @@
 package com.raktsetu.server.security;
 
 import com.raktsetu.server.ApiModels.ApiError;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** Signing in and finding out who is signed in. Accounts are managed in {@link AccountController}. */
 @RestController
+@Tag(name = "Sign-in", description = "Signing in and finding out who is signed in")
 @RequestMapping("/api")
 public class AuthController {
 
@@ -34,12 +36,14 @@ public class AuthController {
     private final AuthenticationManager authentication;
     private final SecurityContextRepository contexts;
     private final UserRepository users;
+    private final LoginGuard guard;
 
     public AuthController(AuthenticationManager authentication, SecurityContextRepository contexts,
-                          UserRepository users) {
+                          UserRepository users, LoginGuard guard) {
         this.authentication = authentication;
         this.contexts = contexts;
         this.users = users;
+        this.guard = guard;
     }
 
     private ResponseEntity<?> me(String username) {
@@ -56,14 +60,19 @@ public class AuthController {
         if (input == null || input.username() == null || input.password() == null) {
             return ResponseEntity.badRequest().body(new ApiError("BadRequest", "Username and password are required"));
         }
+        String username = input.username().trim();
+        String address = request.getRemoteAddr();
+        guard.check(username, address); // throws TooManyAttemptsException, answered with 429
         Authentication result;
         try {
             result = authentication.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(
-                    input.username().trim(), input.password()));
+                    username, input.password()));
         } catch (AuthenticationException e) {
+            guard.failed(username, address);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ApiError("BadCredentials", "Wrong username or password, or the account is disabled"));
         }
+        guard.succeeded(username);
         request.getSession(true);
         request.changeSessionId(); // protects against session fixation
         SecurityContext context = SecurityContextHolder.createEmptyContext();

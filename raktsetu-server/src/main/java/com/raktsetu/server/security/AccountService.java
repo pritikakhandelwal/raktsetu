@@ -43,12 +43,15 @@ public class AccountService {
     private final PasswordEncoder encoder;
     private final NetworkService network;
     private final Clock clock;
+    private final LoginGuard guard;
 
-    public AccountService(UserRepository users, PasswordEncoder encoder, NetworkService network, Clock clock) {
+    public AccountService(UserRepository users, PasswordEncoder encoder, NetworkService network, Clock clock,
+                          LoginGuard guard) {
         this.users = users;
         this.encoder = encoder;
         this.network = network;
         this.clock = clock;
+        this.guard = guard;
     }
 
     public boolean needsSetup() {
@@ -114,6 +117,7 @@ public class AccountService {
         UserRepository.Account account = account(username);
         String oneTime = Passwords.oneTime();
         users.setPassword(account.user().username(), encoder.encode(oneTime), true);
+        guard.clear(account.user().username());
         return new NewAccount(view(account(username)), oneTime);
     }
 
