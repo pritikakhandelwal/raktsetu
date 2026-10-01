@@ -12,7 +12,9 @@ const ROLE_LABELS: Record<Role, string> = {
 /** Administrators: everyone who can sign in, adding people, resetting passwords, disabling accounts. */
 export function PeoplePage(props: SectionProps & { me: User }) {
   const { rev, changed, notify, me } = props;
-  const { data: people, error } = useLoad(api.users, [rev]);
+  const { data: everyone, error } = useLoad(api.users, [rev]);
+  const people = everyone?.filter((a) => !a.pending);
+  const requests = everyone?.filter((a) => a.pending) ?? [];
   const { data: facilities } = useLoad(api.facilities, [rev]);
   const [adding, setAdding] = useState(false);
   const [issued, setIssued] = useState<NewAccount>();
@@ -59,6 +61,20 @@ export function PeoplePage(props: SectionProps & { me: User }) {
     }
   }
 
+  async function decide(a: Account, approve: boolean) {
+    if (!approve && !window.confirm(`Reject ${a.displayName}'s request to join? It will be deleted.`)) {
+      return;
+    }
+    try {
+      if (approve) await api.approveAccount(a.username);
+      else await api.rejectAccount(a.username);
+      notify(approve ? `${a.displayName} can now sign in.` : `${a.displayName}'s request was rejected.`, true);
+      changed();
+    } catch (err) {
+      notify(errorText(err));
+    }
+  }
+
   const facilityName = (id: string | null) => facilities?.find((f) => f.id === id)?.name ?? id ?? "";
 
   return (
@@ -72,6 +88,47 @@ export function PeoplePage(props: SectionProps & { me: User }) {
         />
         {error && <p className="message error">{error}</p>}
         {issued && <OneTimePassword account={issued} onClose={() => setIssued(undefined)} />}
+        {requests.length > 0 && (
+          <div className="panel on-light" style={{ marginBottom: 24 }}>
+            <h3>Requests to join</h3>
+            <p className="login-help">
+              People who asked for an account from the sign-in page. Check you know them before approving.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Works at</th>
+                  <th>Asked on</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map((a) => (
+                  <tr key={a.username}>
+                    <td>
+                      <strong>{a.displayName}</strong>
+                    </td>
+                    <td>{a.username}</td>
+                    <td>{ROLE_LABELS[a.role]}</td>
+                    <td>{a.facilityId ? `${a.facilityId} · ${facilityName(a.facilityId)}` : ""}</td>
+                    <td>{a.createdOn}</td>
+                    <td className="row-actions">
+                      <button className="btn dark small" type="button" onClick={() => decide(a, true)}>
+                        Approve
+                      </button>
+                      <button className="btn ghost small" type="button" onClick={() => decide(a, false)}>
+                        Reject
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="actions" style={{ marginBottom: 20 }}>
           <button className="btn dark" type="button" onClick={() => setAdding((a) => !a)}>
             {adding ? "Cancel" : "Add a person"}
@@ -309,8 +366,8 @@ function OneTimePassword({ account, onClose }: { account: NewAccount; onClose: (
         </dd>
       </dl>
       <p>
-        Give these to {account.user.displayName} privately. They will choose their own password the first time they
-        sign in. <strong>This password will not be shown again.</strong>
+        Give these to {account.user.displayName} privately. They will choose their own password the first time they sign
+        in. <strong>This password will not be shown again.</strong>
       </p>
       <div className="actions">
         <button className="btn" type="button" onClick={copy}>

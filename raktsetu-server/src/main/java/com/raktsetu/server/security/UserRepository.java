@@ -17,9 +17,11 @@ public class UserRepository {
      * @param phone         mobile number for urgent alerts (E.164), or null
      * @param alertsEnabled whether the person wants urgent alerts on that number
      * @param anonymisedOn  when a former member of staff's details were erased, or null
+     * @param pending       a request to join that no administrator has approved yet
      */
     public record Account(AppUser user, String passwordHash, boolean enabled, boolean mustChangePassword,
-                          LocalDate createdOn, String phone, boolean alertsEnabled, LocalDate anonymisedOn) {
+                          LocalDate createdOn, String phone, boolean alertsEnabled, LocalDate anonymisedOn,
+                          boolean pending) {
     }
 
     private final JdbcClient jdbc;
@@ -53,6 +55,30 @@ public class UserRepository {
                 .params(user.username(), user.displayName(), passwordHash, user.role().name(), user.facilityId(), true,
                         mustChangePassword, createdOn)
                 .update();
+    }
+
+    /** A request to join: disabled until an administrator approves it. */
+    public void insertPending(AppUser user, String passwordHash, LocalDate createdOn) {
+        jdbc.sql("insert into app_user (username, display_name, password_hash, role, facility_id, enabled, "
+                        + "must_change_password, created_on, pending) values (?, ?, ?, ?, ?, false, false, ?, true)")
+                .params(user.username(), user.displayName(), passwordHash, user.role().name(), user.facilityId(),
+                        createdOn)
+                .update();
+    }
+
+    public int pendingCount() {
+        return jdbc.sql("select count(*) from app_user where pending = true").query(Integer.class).single();
+    }
+
+    /** Approves a request to join; the person can sign in from now on. */
+    public void approve(String username) {
+        jdbc.sql("update app_user set pending = false, enabled = true where username = ? and pending = true")
+                .param(username).update();
+    }
+
+    /** Deletes a request to join. Safe, because a pending account has never signed in or done anything. */
+    public void deletePending(String username) {
+        jdbc.sql("delete from app_user where username = ? and pending = true").param(username).update();
     }
 
     public void setPassword(String username, String passwordHash, boolean mustChangePassword) {
@@ -109,6 +135,6 @@ public class UserRepository {
                 Role.valueOf(rs.getString("role")), rs.getString("facility_id")), rs.getString("password_hash"),
                 rs.getBoolean("enabled"), rs.getBoolean("must_change_password"),
                 rs.getObject("created_on", LocalDate.class), rs.getString("phone"), rs.getBoolean("alerts_enabled"),
-                rs.getObject("anonymised_on", LocalDate.class));
+                rs.getObject("anonymised_on", LocalDate.class), rs.getBoolean("pending"));
     }
 }

@@ -13,6 +13,7 @@ const KIND_LABELS: Record<string, string> = {
   TRANSFER_INCOMING: "Incoming transfer",
   EXPIRING_SOON: "Expiring soon",
   REPORT_OVERDUE: "Report overdue",
+  ACCOUNT_REQUESTED: "Request to join",
 };
 
 /** The bell in the header: unread count, and a panel of the latest notifications. Refreshes every 30 seconds. */

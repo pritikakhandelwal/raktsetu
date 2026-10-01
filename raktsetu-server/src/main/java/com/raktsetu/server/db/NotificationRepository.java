@@ -18,7 +18,7 @@ public class NotificationRepository {
     /** Kinds of notification, for icons and filtering in the app. */
     public enum Kind {
         REQUEST_TO_DISPATCH, REQUEST_DISPATCHED, REQUEST_CANCELLED, REQUEST_UNMET, TRANSFER_OUTGOING,
-        TRANSFER_INCOMING, EXPIRING_SOON, REPORT_OVERDUE
+        TRANSFER_INCOMING, EXPIRING_SOON, REPORT_OVERDUE, ACCOUNT_REQUESTED
     }
 
     public record Notification(long id, LocalDate createdOn, String facilityId, String kind, String message,

@@ -205,6 +205,14 @@ export interface Account {
   mustChangePassword: boolean;
   createdOn: string | null;
   anonymisedOn: string | null;
+  pending: boolean;
+}
+
+/** A blood centre or hospital someone can ask to join. */
+export interface JoinableFacility {
+  id: string;
+  name: string;
+  type: FacilityType;
 }
 
 /** The facts in the privacy notice, from the server's settings. */
@@ -336,6 +344,11 @@ export const api = {
   testAlert: () => post<{ queued: number; to: string; channels: string[] }>("/alerts/test"),
   resetPassword: (username: string) => post<NewAccount>(`/users/${encodeURIComponent(username)}/reset-password`),
   privacy: () => call<PrivacyNoticeFacts>("/privacy"),
+  signupFacilities: () => call<JoinableFacility[]>("/signup/facilities"),
+  signup: (body: { username: string; displayName: string; password: string; role: Role; facilityId: string }) =>
+    post<Account>("/signup", body),
+  approveAccount: (username: string) => post<Account>(`/users/${encodeURIComponent(username)}/approve`),
+  rejectAccount: (username: string) => post<void>(`/users/${encodeURIComponent(username)}/reject`),
   myData: () => call<unknown>("/auth/my-data"),
   anonymise: (username: string) => post<Account>(`/users/${encodeURIComponent(username)}/anonymise`),
   setEnabled: (username: string, enabled: boolean) =>

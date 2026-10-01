@@ -3,6 +3,7 @@ package com.raktsetu.server.security;
 import com.raktsetu.server.ApiModels.FacilityView;
 import com.raktsetu.server.NetworkService;
 import com.raktsetu.server.alerts.AlertOutbox;
+import com.raktsetu.server.db.NotificationRepository;
 import com.raktsetu.server.alerts.PhoneNumbers;
 import com.raktsetu.server.privacy.PrivacyProperties;
 import org.springframework.security.access.AccessDeniedException;
@@ -27,7 +28,7 @@ public class AccountService {
     /** An account as administrators see it (never the password hash). */
     public record UserView(String username, String displayName, Role role, String facilityId, boolean enabled,
                            String phone, boolean alertsEnabled, boolean mustChangePassword, LocalDate createdOn,
-                           LocalDate anonymisedOn) {
+                           LocalDate anonymisedOn, boolean pending) {
     }
 
     /** A new or reset account with its one-time password, shown once. */
@@ -40,6 +41,17 @@ public class AccountService {
     /** @param phone optional mobile number; if given, the person gets urgent alerts until they turn them off */
     public record UserInput(String username, String displayName, String role, String facilityId, String phone) {
     }
+
+    /** A request to join, from the sign-in page. Only blood centre and hospital staff accounts can be requested. */
+    public record SignupInput(String username, String displayName, String password, String role, String facilityId) {
+    }
+
+    /** A facility someone can ask to join, as listed on the public request form. */
+    public record JoinableFacility(String id, String name, String type) {
+    }
+
+    /** Requests waiting beyond this many are refused, so a flood of requests cannot fill the database. */
+    static final int MAX_PENDING = 100;
 
     /** A person's own alert settings. */
     public record ContactInput(String phone, Boolean alertsEnabled) {
@@ -55,9 +67,11 @@ public class AccountService {
     private final LoginGuard guard;
     private final AlertOutbox outbox;
     private final PrivacyProperties privacy;
+    private final NotificationRepository notifications;
 
     public AccountService(UserRepository users, PasswordEncoder encoder, NetworkService network, Clock clock,
-                          LoginGuard guard, AlertOutbox outbox, PrivacyProperties privacy) {
+                          LoginGuard guard, AlertOutbox outbox, PrivacyProperties privacy,
+                          NotificationRepository notifications) {
         this.users = users;
         this.encoder = encoder;
         this.network = network;
@@ -65,6 +79,7 @@ public class AccountService {
         this.guard = guard;
         this.outbox = outbox;
         this.privacy = privacy;
+        this.notifications = notifications;
     }
 
     public boolean needsSetup() {
@@ -107,18 +122,7 @@ public class AccountService {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Role must be ADMIN, CENTRE_STAFF or HOSPITAL_STAFF", e);
         }
-        String facilityId = null;
-        if (role != Role.ADMIN) {
-            facilityId = input.facilityId() == null ? "" : input.facilityId().trim();
-            String id = facilityId;
-            FacilityView f = network.facilities().stream().filter(x -> x.id().equals(id)).findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Choose the facility this person works at"));
-            boolean hospital = f.type().equals("HOSPITAL");
-            if (hospital != (role == Role.HOSPITAL_STAFF)) {
-                throw new IllegalArgumentException(role == Role.HOSPITAL_STAFF
-                        ? "Hospital staff must belong to a hospital" : "Centre staff must belong to a blood centre");
-            }
-        }
+        String facilityId = role == Role.ADMIN ? null : facilityFor(role, input.facilityId());
         String phone = input.phone() == null || input.phone().isBlank() ? null : PhoneNumbers.normalise(input.phone());
         String oneTime = Passwords.oneTime();
         users.insert(new AppUser(username, name, role, facilityId), encoder.encode(oneTime), true,
@@ -142,6 +146,9 @@ public class AccountService {
     /** Enables or disables an account. You cannot disable yourself or the last active administrator. */
     public synchronized UserView setEnabled(String username, boolean enabled, AppUser actingAdmin) {
         UserRepository.Account account = account(username);
+        if (account.pending()) {
+            throw new IllegalArgumentException("Approve or reject " + username + "'s request to join instead");
+        }
         if (!enabled) {
             if (account.user().username().equals(actingAdmin.username())) {
                 throw new IllegalArgumentException("You cannot disable your own account");
@@ -166,6 +173,77 @@ public class AccountService {
             throw new IllegalArgumentException("Choose a password different from the current one");
         }
         users.setPassword(username, encoder.encode(input.newPassword()), false);
+    }
+
+    /** The facilities someone can ask to join: every blood centre and hospital, by name. */
+    public List<JoinableFacility> joinableFacilities() {
+        return network.facilities().stream().map(f -> new JoinableFacility(f.id(), f.name(), f.type())).toList();
+    }
+
+    /**
+     * Records a request to join. The account is created disabled and pending; nobody can sign in with it until an
+     * administrator approves it. Administrators are notified.
+     */
+    public synchronized UserView requestAccount(SignupInput input) {
+        if (needsSetup()) {
+            throw new IllegalArgumentException("RaktSetu is not set up yet; the first administrator must set it up");
+        }
+        if (input == null) {
+            throw new IllegalArgumentException("Name, username, role, facility and password are required");
+        }
+        String username = username(input.username());
+        if (users.find(username).isPresent()) {
+            throw new IllegalArgumentException("The username '" + username + "' is already taken");
+        }
+        String name = displayName(input.displayName());
+        Role role = switch (input.role() == null ? "" : input.role().trim().toUpperCase(Locale.ROOT)) {
+            case "CENTRE_STAFF" -> Role.CENTRE_STAFF;
+            case "HOSPITAL_STAFF" -> Role.HOSPITAL_STAFF;
+            default -> throw new IllegalArgumentException("Choose blood centre staff or hospital staff");
+        };
+        String facilityId = facilityFor(role, input.facilityId());
+        Passwords.check(input.password(), username);
+        if (users.pendingCount() >= MAX_PENDING) {
+            throw new IllegalArgumentException("Too many requests are waiting; ask a network administrator directly");
+        }
+        users.insertPending(new AppUser(username, name, role, facilityId), encoder.encode(input.password()),
+                LocalDate.now(clock));
+        notifications.add(LocalDate.now(clock), null, NotificationRepository.Kind.ACCOUNT_REQUESTED,
+                name + " (" + username + ") asked to join as " + (role == Role.HOSPITAL_STAFF ? "hospital" : "centre")
+                        + " staff at " + facilityId + ". Approve or reject on the People page.");
+        return view(account(username));
+    }
+
+    /** Approves a request to join. */
+    public synchronized UserView approve(String username) {
+        users.approve(pending(username).user().username());
+        return view(account(username));
+    }
+
+    /** Rejects a request to join, deleting it. */
+    public synchronized void reject(String username) {
+        users.deletePending(pending(username).user().username());
+    }
+
+    private UserRepository.Account pending(String username) {
+        UserRepository.Account account = account(username);
+        if (!account.pending()) {
+            throw new IllegalArgumentException(username + " is not waiting for approval");
+        }
+        return account;
+    }
+
+    /** Checks the facility exists and suits the role: hospital staff at a hospital, centre staff at a blood centre. */
+    private String facilityFor(Role role, String rawId) {
+        String id = rawId == null ? "" : rawId.trim();
+        FacilityView f = network.facilities().stream().filter(x -> x.id().equals(id)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Choose the facility this person works at"));
+        boolean hospital = f.type().equals("HOSPITAL");
+        if (hospital != (role == Role.HOSPITAL_STAFF)) {
+            throw new IllegalArgumentException(role == Role.HOSPITAL_STAFF
+                    ? "Hospital staff must belong to a hospital" : "Centre staff must belong to a blood centre");
+        }
+        return id;
     }
 
     /**
@@ -244,6 +322,6 @@ public class AccountService {
     private static UserView view(UserRepository.Account a) {
         AppUser u = a.user();
         return new UserView(u.username(), u.displayName(), u.role(), u.facilityId(), a.enabled(), a.phone(),
-                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn());
+                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn(), a.pending());
     }
 }

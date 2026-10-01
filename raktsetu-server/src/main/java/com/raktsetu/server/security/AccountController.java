@@ -7,6 +7,7 @@ import com.raktsetu.server.security.AccountService.SetupInput;
 import com.raktsetu.server.security.AccountService.UserInput;
 import com.raktsetu.server.security.AccountService.UserView;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -32,10 +33,39 @@ public class AccountController {
 
     private final AccountService accounts;
     private final CurrentUsers current;
+    private final LoginGuard guard;
 
-    public AccountController(AccountService accounts, CurrentUsers current) {
+    public AccountController(AccountService accounts, CurrentUsers current, LoginGuard guard) {
         this.accounts = accounts;
         this.current = current;
+        this.guard = guard;
+    }
+
+    /** Public: the blood centres and hospitals someone can ask to join. */
+    @GetMapping("/signup/facilities")
+    public List<AccountService.JoinableFacility> joinableFacilities() {
+        return accounts.joinableFacilities();
+    }
+
+    /** Public: a request to join, which an administrator must approve before the account can sign in. */
+    @PostMapping("/signup")
+    public ResponseEntity<UserView> requestAccount(@RequestBody AccountService.SignupInput input,
+                                                   HttpServletRequest request) {
+        guard.signup(request.getRemoteAddr()); // throws TooManyAttemptsException, answered with 429
+        return ResponseEntity.status(HttpStatus.CREATED).body(accounts.requestAccount(input));
+    }
+
+    @PostMapping("/users/{username}/approve")
+    public UserView approve(@PathVariable String username, Authentication auth) {
+        current.of(auth).requireAdmin();
+        return accounts.approve(username);
+    }
+
+    @PostMapping("/users/{username}/reject")
+    public ResponseEntity<Void> reject(@PathVariable String username, Authentication auth) {
+        current.of(auth).requireAdmin();
+        accounts.reject(username);
+        return ResponseEntity.noContent().build();
     }
 
     /** Public: whether the first administrator still has to be created. */
