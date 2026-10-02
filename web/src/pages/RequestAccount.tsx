@@ -40,6 +40,8 @@ export function RequestAccount({ onBack }: { onBack: () => void }) {
         role,
         facilityId: place.facilityId ?? undefined,
         directoryId: place.directoryId ?? undefined,
+        unlistedName: place.unlisted ? place.name : undefined,
+        unlistedTown: place.unlisted ? place.where : undefined,
       });
       setSent(true);
     } catch (err) {
@@ -147,6 +149,9 @@ function PlaceSearch({
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
+  const [typing, setTyping] = useState(false);
+  const [ownName, setOwnName] = useState("");
+  const [ownTown, setOwnTown] = useState("");
   const [error, setError] = useState("");
   const noun = role === "HOSPITAL_STAFF" ? "hospital" : "blood centre";
 
@@ -175,11 +180,52 @@ function PlaceSearch({
         <span>
           <strong>{chosen.name}</strong>
           {chosen.where && <span className="muted"> · {chosen.where}</span>}
-          {!chosen.onNetwork && <span className="muted"> · new to RaktSetu</span>}
+          {chosen.unlisted ? (
+            <span className="muted"> · not listed; the administrator will place it</span>
+          ) : (
+            !chosen.onNetwork && <span className="muted"> · new to RaktSetu</span>
+          )}
         </span>
         <button className="btn ghost small" type="button" onClick={() => onChoose(undefined)}>
           Change
         </button>
+      </div>
+    );
+  }
+
+  if (typing) {
+    return (
+      <div className="place-search">
+        <label>
+          Name of your {noun}
+          <input value={ownName} onChange={(e) => setOwnName(e.target.value)} autoFocus />
+        </label>
+        <label>
+          Town or city
+          <input value={ownTown} onChange={(e) => setOwnTown(e.target.value)} />
+        </label>
+        <div className="actions">
+          <button
+            className="btn dark small"
+            type="button"
+            disabled={!ownName.trim() || !ownTown.trim()}
+            onClick={() =>
+              onChoose({
+                facilityId: null,
+                directoryId: null,
+                name: ownName.trim(),
+                where: ownTown.trim(),
+                onNetwork: false,
+                unlisted: true,
+              })
+            }
+          >
+            Use this
+          </button>
+          <button className="btn ghost small" type="button" onClick={() => setTyping(false)}>
+            Back to the list
+          </button>
+        </div>
       </div>
     );
   }
@@ -212,12 +258,14 @@ function PlaceSearch({
         </ul>
       )}
       {query.trim().length >= 2 && results.length === 0 && !error && (
-        <p className="login-help">
-          No match. Try fewer words or the town name; the directory lists licensed blood centres and government
-          hospitals. If yours is missing, ask your network administrator to add it.
-        </p>
+        <p className="login-help">No match. Try fewer words, or just the name and town.</p>
       )}
-      <p className="login-help">Directory: National Health Portal (Government of India) open data.</p>
+      <button className="btn ghost small" type="button" onClick={() => setTyping(true)}>
+        Not listed? Enter it yourself
+      </button>
+      <p className="login-help">
+        Lists: National Health Portal (Government of India) open data, and © OpenStreetMap contributors (ODbL).
+      </p>
     </div>
   );
 }

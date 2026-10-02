@@ -71,10 +71,26 @@ def query(layer, where, fields):
         last = page[-1]["objectid"]
 
 
+def repair(text):
+    """Undoes mojibake (UTF-8 read as Windows-1252, e.g. "\u00e2\u20ac\u2122" for an apostrophe) and drops characters
+    lost in the source data."""
+    try:
+        fixed = text.encode("cp1252").decode("utf-8")
+        if fixed != text:
+            text = fixed
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    text = text.replace("\ufffd", " ").replace("\u00ef\u00bf\u00bd", " ")
+    text = re.sub(r"[\u0080-\u009f]", "", text)  # stray control characters
+    text = re.sub(r"[ªøýÿƒ›]+", " ", text)  # fragments that could not be undone
+    return re.sub(r"\?{2,}", " ", text)
+
+
 def clean(text, limit):
     if text is None:
         return ""
-    text = re.sub(r"\s+", " ", html.unescape(str(text))).strip().strip(",").strip()
+    text = repair(html.unescape(str(text)))
+    text = re.sub(r"\s+", " ", text).strip().strip(",").strip()
     return "" if text.upper() in ("NA", "N/A", "NULL", "0", "-") else text[:limit]
 
 

@@ -103,7 +103,7 @@ class SignupTest {
 
     @Test
     void theDirectoryOfIndianBloodCentresAndHospitalsIsLoaded() {
-        assertThat(directory.count()).isGreaterThan(8_000);
+        assertThat(directory.count()).isGreaterThan(50_000);
         assertThat(directory.find("BC1845")).get().extracting(DirectoryRepository.Entry::name)
                 .isEqualTo("KEM Hospital Blood Bank");
     }
@@ -118,6 +118,48 @@ class SignupTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.directoryId == 'BC1845')].name").value(hasItem("KEM Hospital Blood Bank")))
                 .andExpect(jsonPath("$[?(@.directoryId == 'BC1845')].onNetwork").value(hasItem(false)));
+    }
+
+    @Test
+    void privateHospitalsFromOpenStreetMapCanBeFound() throws Exception {
+        mvc.perform(get("/api/signup/places").param("role", "HOSPITAL_STAFF").param("q", "ruby hall pune"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].name", hasItem("Ruby Hall")))
+                .andExpect(jsonPath("$[0].directoryId").value(org.hamcrest.Matchers.startsWith("OSM")));
+    }
+
+    @Test
+    void someoneFromAnUnlistedHospitalIsPlacedByTheAdministrator() throws Exception {
+        String body = "{\"username\":\"sister.rao\",\"displayName\":\"Sister Rao\",\"password\":\"" + PASSWORD
+                + "\",\"role\":\"HOSPITAL_STAFF\",\"unlistedName\":\"Sunrise Nursing Home\",\"unlistedTown\":\"Satara\"}";
+        mvc.perform(post("/api/signup").with(csrf()).with(r -> {
+                    r.setRemoteAddr("10.0.2.1");
+                    return r;
+                }).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.requestedFacility").value("Sunrise Nursing Home, Satara"))
+                .andExpect(jsonPath("$.needsFacility").value(true));
+
+        var admin = user("admin").roles("ADMIN");
+        mvc.perform(post("/api/users/sister.rao/approve").with(admin).with(csrf()))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/users/sister.rao/approve").with(admin).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"facilityId\":\"HUB01\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Hospital staff must belong to a hospital"));
+        mvc.perform(post("/api/users/sister.rao/approve").with(admin).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"facilityId\":\"H02\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.facilityId").value("H02"))
+                .andExpect(jsonPath("$.needsFacility").value(false));
+
+        String noTown = body.replace("sister.rao", "no.town").replace("Satara", "");
+        mvc.perform(post("/api/signup").with(csrf()).with(r -> {
+                    r.setRemoteAddr("10.0.2.2");
+                    return r;
+                }).contentType(MediaType.APPLICATION_JSON).content(noTown))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Give the town or city of your hospital"));
     }
 
     @Test

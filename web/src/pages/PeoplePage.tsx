@@ -61,12 +61,14 @@ export function PeoplePage(props: SectionProps & { me: User }) {
     }
   }
 
+  const [placeFor, setPlaceFor] = useState<Record<string, string>>({});
+
   async function decide(a: Account, approve: boolean) {
     if (!approve && !window.confirm(`Reject ${a.displayName}'s request to join? It will be deleted.`)) {
       return;
     }
     try {
-      if (approve) await api.approveAccount(a.username);
+      if (approve) await api.approveAccount(a.username, a.needsFacility ? placeFor[a.username] : undefined);
       else await api.rejectAccount(a.username);
       notify(approve ? `${a.displayName} can now sign in.` : `${a.displayName}'s request was rejected.`, true);
       changed();
@@ -104,11 +106,36 @@ export function PeoplePage(props: SectionProps & { me: User }) {
                     {ROLE_LABELS[a.role]} at{" "}
                     {a.facilityId
                       ? `${a.facilityId} · ${facilityName(a.facilityId)}`
-                      : `${a.requestedFacility ?? ""} (new: added to the network when you approve)`}
+                      : a.needsFacility
+                        ? `${a.requestedFacility ?? ""} (not listed: choose which facility it is)`
+                        : `${a.requestedFacility ?? ""} (new: added to the network when you approve)`}
                   </div>
                   <div className="muted">Asked on {a.createdOn}</div>
+                  {a.needsFacility && (
+                    <label>
+                      Which facility is it?
+                      <select
+                        value={placeFor[a.username] ?? ""}
+                        onChange={(e) => setPlaceFor((p) => ({ ...p, [a.username]: e.target.value }))}
+                      >
+                        <option value="">Choose… (add it on Facilities first if it is missing)</option>
+                        {(facilities ?? [])
+                          .filter((f) => (f.type === "HOSPITAL") === (a.role === "HOSPITAL_STAFF"))
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.id} · {f.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  )}
                   <div className="actions">
-                    <button className="btn dark small" type="button" onClick={() => decide(a, true)}>
+                    <button
+                      className="btn dark small"
+                      type="button"
+                      disabled={a.needsFacility && !placeFor[a.username]}
+                      onClick={() => decide(a, true)}
+                    >
                       Approve
                     </button>
                     <button className="btn ghost small" type="button" onClick={() => decide(a, false)}>

@@ -19,10 +19,12 @@ public class UserRepository {
      * @param anonymisedOn  when a former member of staff's details were erased, or null
      * @param pending       a request to join that no administrator has approved yet
      * @param requestedDirectoryId for a request to join a facility not yet in the network: its directory entry
+     * @param requestedPlace       for a request to join a facility in neither the network nor the directory: the
+     *                             name and town the person typed
      */
     public record Account(AppUser user, String passwordHash, boolean enabled, boolean mustChangePassword,
                           LocalDate createdOn, String phone, boolean alertsEnabled, LocalDate anonymisedOn,
-                          boolean pending, String requestedDirectoryId) {
+                          boolean pending, String requestedDirectoryId, String requestedPlace) {
     }
 
     private final JdbcClient jdbc;
@@ -59,15 +61,17 @@ public class UserRepository {
     }
 
     /**
-     * A request to join: disabled until an administrator approves it. The facility is either in the network
-     * ({@code user.facilityId()}) or only in the directory ({@code requestedDirectoryId}).
+     * A request to join: disabled until an administrator approves it. The facility is in the network
+     * ({@code user.facilityId()}), only in the directory ({@code requestedDirectoryId}), or only described by the
+     * person ({@code requestedPlace}).
      */
-    public void insertPending(AppUser user, String passwordHash, LocalDate createdOn, String requestedDirectoryId) {
+    public void insertPending(AppUser user, String passwordHash, LocalDate createdOn, String requestedDirectoryId,
+                              String requestedPlace) {
         jdbc.sql("insert into app_user (username, display_name, password_hash, role, facility_id, enabled, "
-                        + "must_change_password, created_on, pending, requested_directory_id) "
-                        + "values (?, ?, ?, ?, ?, false, false, ?, true, ?)")
+                        + "must_change_password, created_on, pending, requested_directory_id, requested_place) "
+                        + "values (?, ?, ?, ?, ?, false, false, ?, true, ?, ?)")
                 .params(user.username(), user.displayName(), passwordHash, user.role().name(), user.facilityId(),
-                        createdOn, requestedDirectoryId)
+                        createdOn, requestedDirectoryId, requestedPlace)
                 .update();
     }
 
@@ -77,8 +81,8 @@ public class UserRepository {
 
     /** Approves a request to join, at the given network facility; the person can sign in from now on. */
     public void approve(String username, String facilityId) {
-        jdbc.sql("update app_user set pending = false, enabled = true, facility_id = ?, requested_directory_id = null "
-                        + "where username = ? and pending = true")
+        jdbc.sql("update app_user set pending = false, enabled = true, facility_id = ?, requested_directory_id = null, "
+                        + "requested_place = null where username = ? and pending = true")
                 .params(facilityId, username).update();
     }
 
@@ -142,6 +146,6 @@ public class UserRepository {
                 rs.getBoolean("enabled"), rs.getBoolean("must_change_password"),
                 rs.getObject("created_on", LocalDate.class), rs.getString("phone"), rs.getBoolean("alerts_enabled"),
                 rs.getObject("anonymised_on", LocalDate.class), rs.getBoolean("pending"),
-                rs.getString("requested_directory_id"));
+                rs.getString("requested_directory_id"), rs.getString("requested_place"));
     }
 }

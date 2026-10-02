@@ -208,6 +208,8 @@ export interface Account {
   pending: boolean;
   /** For a request to join a facility not yet in the network: its name and place. */
   requestedFacility: string | null;
+  /** A request for a facility that was not listed: the administrator chooses which network facility it is. */
+  needsFacility: boolean;
 }
 
 /** A hospital or blood centre offered by the request form's search: in the network, or from the directory. */
@@ -217,6 +219,8 @@ export interface Place {
   name: string;
   where: string;
   onNetwork: boolean;
+  /** Typed in by the person because it was not in the list. */
+  unlisted?: boolean;
 }
 
 /** The facts in the privacy notice, from the server's settings. */
@@ -318,8 +322,7 @@ export const api = {
   addUnits: (
     facilityId: string,
     body: { component: Component; group: string; quantity: number; collectedOn?: string; unitId?: string },
-  ) =>
-    post<{ unitIds: string[]; expiresOn: string }>(`/facilities/${encodeURIComponent(facilityId)}/units`, body),
+  ) => post<{ unitIds: string[]; expiresOn: string }>(`/facilities/${encodeURIComponent(facilityId)}/units`, body),
   discard: (facilityId: string, unitId: string, reason: string) =>
     post<void>(`/facilities/${encodeURIComponent(facilityId)}/units/${encodeURIComponent(unitId)}/discard`, { reason }),
   notifications: () => call<NotificationList>("/notifications"),
@@ -357,8 +360,11 @@ export const api = {
     role: Role;
     facilityId?: string;
     directoryId?: string;
+    unlistedName?: string;
+    unlistedTown?: string;
   }) => post<Account>("/signup", body),
-  approveAccount: (username: string) => post<Account>(`/users/${encodeURIComponent(username)}/approve`),
+  approveAccount: (username: string, facilityId?: string) =>
+    post<Account>(`/users/${encodeURIComponent(username)}/approve`, facilityId ? { facilityId } : undefined),
   rejectAccount: (username: string) => post<void>(`/users/${encodeURIComponent(username)}/reject`),
   myData: () => call<unknown>("/auth/my-data"),
   anonymise: (username: string) => post<Account>(`/users/${encodeURIComponent(username)}/anonymise`),
