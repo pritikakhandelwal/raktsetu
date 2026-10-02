@@ -30,7 +30,8 @@ public class AccountService {
     /** An account as administrators see it (never the password hash). */
     public record UserView(String username, String displayName, Role role, String facilityId, boolean enabled,
                            String phone, boolean alertsEnabled, boolean mustChangePassword, LocalDate createdOn,
-                           LocalDate anonymisedOn, boolean pending, String requestedFacility) {
+                           LocalDate anonymisedOn, boolean pending, String requestedFacility,
+                           boolean needsFacility) {
     }
 
     /** A new or reset account with its one-time password, shown once. */
@@ -46,10 +47,11 @@ public class AccountService {
 
     /**
      * A request to join, from the sign-in page. Only blood centre and hospital staff accounts can be requested. The
-     * facility is one already in the network ({@code facilityId}) or one from the directory ({@code directoryId}).
+     * facility is one already in the network ({@code facilityId}), one from the directory ({@code directoryId}), or
+     * one the person describes because it is in neither ({@code unlistedName} and {@code unlistedTown}).
      */
     public record SignupInput(String username, String displayName, String password, String role, String facilityId,
-                              String directoryId) {
+                              String directoryId, String unlistedName, String unlistedTown) {
     }
 
     /**
@@ -206,6 +208,10 @@ public class AccountService {
         return found;
     }
 
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
+    }
+
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
     }
@@ -233,8 +239,21 @@ public class AccountService {
         };
         String facilityId = null;
         String directoryId = null;
+        String requestedPlace = null;
         String facilityName;
-        if (input.directoryId() != null && !input.directoryId().isBlank()) {
+        if (blank(input.directoryId()) && blank(input.facilityId()) && !blank(input.unlistedName())) {
+            String place = input.unlistedName().trim().replaceAll("\\s+", " ");
+            String town = input.unlistedTown() == null ? "" : input.unlistedTown().trim().replaceAll("\\s+", " ");
+            if (town.isEmpty()) {
+                throw new IllegalArgumentException("Give the town or city of your "
+                        + (role == Role.HOSPITAL_STAFF ? "hospital" : "blood centre"));
+            }
+            requestedPlace = place + ", " + town;
+            if (requestedPlace.length() > 200) {
+                throw new IllegalArgumentException("Keep the name and town under 200 characters");
+            }
+            facilityName = requestedPlace + " (not listed)";
+        } else if (input.directoryId() != null && !input.directoryId().isBlank()) {
             DirectoryRepository.Entry entry = directory.find(input.directoryId().trim())
                     .orElseThrow(() -> new IllegalArgumentException("Choose your facility from the list"));
             boolean hospital = entry.kind().equals(DirectoryRepository.HOSPITAL);
@@ -254,7 +273,7 @@ public class AccountService {
             throw new IllegalArgumentException("Too many requests are waiting; ask a network administrator directly");
         }
         users.insertPending(new AppUser(username, name, role, facilityId), encoder.encode(input.password()),
-                LocalDate.now(clock), directoryId);
+                LocalDate.now(clock), directoryId, requestedPlace);
         notifications.add(LocalDate.now(clock), null, NotificationRepository.Kind.ACCOUNT_REQUESTED,
                 name + " (" + username + ") asked to join as " + (role == Role.HOSPITAL_STAFF ? "hospital" : "centre")
                         + " staff at " + facilityName + ". Approve or reject on the People page.");
@@ -266,7 +285,24 @@ public class AccountService {
      * first (a hospital, or a blood centre as a storage centre), with road routes to the other facilities.
      */
     public synchronized UserView approve(String username) {
+        return approve(username, null);
+    }
+
+    /**
+     * Approves a request to join. For a facility the person described because it was not listed, the administrator
+     * names the network facility it is ({@code chosenFacilityId}), adding it on the Facilities page first if needed.
+     */
+    public synchronized UserView approve(String username, String chosenFacilityId) {
         UserRepository.Account account = pending(username);
+        if (account.requestedPlace() != null) {
+            if (blank(chosenFacilityId)) {
+                throw new IllegalArgumentException("Choose which facility " + account.requestedPlace()
+                        + " is; if it is not in the network yet, add it on the Facilities page first");
+            }
+            String facilityId = facilityFor(account.user().role(), chosenFacilityId);
+            users.approve(account.user().username(), facilityId);
+            return view(account(username));
+        }
         String facilityId = account.user().facilityId();
         String directoryId = account.requestedDirectoryId();
         if (directoryId != null) {
@@ -387,9 +423,11 @@ public class AccountService {
 
     private UserView view(UserRepository.Account a) {
         AppUser u = a.user();
-        String requested = a.requestedDirectoryId() == null ? null : directory.find(a.requestedDirectoryId())
-                .map(e -> e.name() + ", " + e.place()).orElse(null);
+        String requested = a.requestedPlace() != null ? a.requestedPlace()
+                : a.requestedDirectoryId() == null ? null : directory.find(a.requestedDirectoryId())
+                        .map(e -> e.name() + ", " + e.place()).orElse(null);
         return new UserView(u.username(), u.displayName(), u.role(), u.facilityId(), a.enabled(), a.phone(),
-                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn(), a.pending(), requested);
+                a.alertsEnabled(), a.mustChangePassword(), a.createdOn(), a.anonymisedOn(), a.pending(), requested,
+                a.pending() && a.requestedPlace() != null);
     }
 }

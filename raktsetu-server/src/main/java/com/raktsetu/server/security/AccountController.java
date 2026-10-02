@@ -60,10 +60,15 @@ public class AccountController {
         return ResponseEntity.status(HttpStatus.CREATED).body(accounts.requestAccount(input));
     }
 
+    /** Optional body for approving: the network facility an unlisted place is, chosen by the administrator. */
+    public record ApproveInput(String facilityId) {
+    }
+
     @PostMapping("/users/{username}/approve")
-    public UserView approve(@PathVariable String username, Authentication auth) {
+    public UserView approve(@PathVariable String username, @RequestBody(required = false) ApproveInput input,
+                            Authentication auth) {
         current.of(auth).requireAdmin();
-        return accounts.approve(username);
+        return accounts.approve(username, input == null ? null : input.facilityId());
     }
 
     @PostMapping("/users/{username}/reject")
