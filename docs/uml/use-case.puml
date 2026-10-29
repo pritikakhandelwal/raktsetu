@@ -1,52 +1,73 @@
 @startuml use-case
-' RaktSetu use-case diagram (v1, Phase 0)
+' RaktSetu use cases (v2): the web app's three roles, the console and simulator, and external systems.
+' Actors on the left use the arrows' tails; hospital staff and the SMS provider sit on the right.
 left to right direction
 skinparam packageStyle rectangle
 
-actor "Blood centre staff" as Staff
-actor "Hospital staff" as Hosp
 actor "Network administrator" as Admin
+actor "Blood centre staff" as Staff
 actor "Simulator" as Sim <<system>>
+actor "Hospital staff" as Hosp
+actor "SMS / WhatsApp provider" as Sms <<system>>
 
 rectangle RaktSetu {
-  usecase "View centre stock" as UC1
-  usecase "Add blood units" as UC3
-  usecase "Remove expired units" as UCX
-  usecase "Run expiry-risk check" as UC6
-  usecase "Raise emergency request" as UC4
-  usecase "Check compatibility" as UC5
-  usecase "View network-wide stock" as UC2
-  usecase "Generate redistribution plan" as UC7
-  usecase "Compare strategies" as UC8
-  usecase "Approve or reject transfers" as UC9
-  usecase "View and verify audit log" as UC10
-  usecase "Run simulation" as UC11
-  usecase "View wastage summary" as UC12
-  usecase "Export reports" as UC13
-  usecase "View data freshness" as UC14
-  usecase "Record in audit log" as AUD
+  package "Administration" {
+    usecase "Set up the network (first run)" as Setup
+    usecase "Manage facilities and routes" as Facilities
+    usecase "Manage people and passwords" as People
+    usecase "Generate and compare transfer plans" as Plan
+    usecase "Approve or reject transfers" as Approve
+    usecase "View and verify the audit log" as Audit
+    usecase "Run the simulation" as Simulate
+  }
+  package "Blood centre" {
+    usecase "Log collected units" as Log
+    usecase "Report daily stock" as Report
+    usecase "Dispatch a request" as Dispatch
+    usecase "Receive a transfer" as ReceiveT
+    usecase "Discard a damaged unit" as Discard
+  }
+  package "Hospital" {
+    usecase "Raise an emergency or routine request" as Raise
+    usecase "Cancel a request before dispatch" as Cancel
+    usecase "Confirm receipt" as Confirm
+    usecase "Check compatibility and availability" as Check
+  }
+  package "Shared" {
+    usecase "Sign in and change password" as SignIn
+    usecase "Receive urgent alerts" as Alerts
+    usecase "Record in the audit log" as Record
+  }
 }
 
-Staff --> UC1
-Staff --> UC3
-Staff --> UCX
-Staff --> UC6
-Hosp --> UC4
-Hosp --> UC5
-Admin --> UC2
-Admin --> UC7
-Admin --> UC8
-Admin --> UC9
-Admin --> UC10
-Admin --> UC11
-Admin --> UC12
-Admin --> UC13
-Admin --> UC14
-Sim --> UC11
+Admin --> Setup
+Admin --> Facilities
+Admin --> People
+Admin --> Plan
+Admin --> Approve
+Admin --> Audit
+Admin --> Simulate
+Admin --> SignIn
+Sim --> Simulate
+Staff --> Log
+Staff --> Report
+Staff --> Dispatch
+Staff --> ReceiveT
+Staff --> Discard
+Staff --> SignIn
+Staff --> Alerts
+Raise <-- Hosp
+Cancel <-- Hosp
+Confirm <-- Hosp
+Check <-- Hosp
+SignIn <-- Hosp
+Alerts <-- Hosp
+Alerts --> Sms
 
-UC4 ..> UC5 : <<include>>
-UC4 ..> AUD : <<include>>
-UC9 ..> AUD : <<include>>
-UCX ..> AUD : <<include>>
-UC8 ..> UC7 : <<include>>
+Raise ..> Check : <<include>>
+Raise ..> Record : <<include>>
+Approve ..> Record : <<include>>
+Log ..> Record : <<include>>
+Discard ..> Record : <<include>>
+Alerts ..> Raise : <<extend>>
 @enduml

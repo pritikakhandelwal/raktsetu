@@ -5,8 +5,8 @@ or paste into https://www.plantuml.com/plantuml.
 
 | File | Diagram | Version |
 |---|---|---|
-| `use-case.puml` | Use cases for the three actors and the simulator | v1 (Phase 0) |
-| `packages.puml` | Module dependencies | v1 (Phase 1) |
+| `use-case.puml` | Use cases of the three roles, the simulator and the SMS provider, grouped by role | v2 (web app) |
+| `packages.puml` | Module dependencies, including the server, benchmarks and web front end | v2 (web app) |
 | `domain-classes.puml` | Domain model: components, facilities, inventory, requests, transfers, interfaces, exceptions | v2 (Phase 1) |
 | `engine-classes.puml` | Engine: allocation, risk, freshness, strategies (Template Method), transfers | v1 (Phase 1) |
 | `server-security-monitoring.puml` | Server: sign-in lockout (Strategy behind `LoginAttemptPolicy`), health check and metrics | v1 (hardening) |

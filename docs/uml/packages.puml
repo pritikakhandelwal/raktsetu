@@ -1,18 +1,30 @@
 @startuml packages
-' Module dependencies. Maven enforces them, so there are no cycles.
+' RaktSetu module dependencies (v2). Keep in sync with the <dependencies> of each module's pom.xml.
 skinparam packageStyle rectangle
+
+package "web (React + TypeScript)" as web
+package "raktsetu-server" as server
 package "raktsetu-cli" as cli
+package "raktsetu-bench" as bench
 package "raktsetu-sim" as sim
 package "raktsetu-engine" as engine
 package "raktsetu-persistence" as persistence
 package "raktsetu-domain" as domain
-cli --> sim
+
+web ..> server : REST / JSON
+server --> engine
+server --> persistence
+server --> sim
 cli --> engine
 cli --> persistence
-cli --> domain
+cli --> sim
+bench --> engine
+bench --> sim
 sim --> engine
-sim --> domain
+sim --> persistence
 engine --> domain
 persistence --> domain
+
 note right of domain : pure Java, no dependencies
+note right of server : Spring Boot web app;\nbundles the built web front end
 @enduml
