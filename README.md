@@ -31,11 +31,11 @@ production-quality system. The full plan is in
 
 | Deliverable | State |
 |---|---|
-| Java source code | Done: 7 Maven modules + React front end, 189 Java tests, 80% coverage gate per module |
+| Java source code | Done: 7 Maven modules + React front end, 234 Java tests and 6 web tests, 80% coverage gate per module |
 | UML design documents | Done: 8 diagrams in [`docs/uml`](docs/uml) |
 | Executable project | Done: one-click Windows app with Java included, plus web and console JARs ([Releases](https://github.com/pritikakhandelwal/raktsetu/releases)) |
-| Project report | Drafted; the PDF will be added to `docs/` at submission |
-| PowerPoint presentation | Drafted (10 slides) |
+| Project report | Done: [final report (PDF)](docs/final/RaktSetu_Final_Report.pdf), also as [Word](docs/final/RaktSetu_Final_Report.docx) |
+| PowerPoint presentation | Done: [final presentation](docs/final/RaktSetu_Presentation.pptx) (17 slides) |
 | Final demonstration | Script ready (first-run setup to a delivered request and an approved transfer) |
 
 ## Download for Windows (no installation)
@@ -256,6 +256,7 @@ A unit is expired **on** its expiry date. Shelf-life values must be confirmed ag
 
 ## Documentation
 
+- [Final project report (PDF)](docs/final/RaktSetu_Final_Report.pdf) and [presentation](docs/final/RaktSetu_Presentation.pptx)
 - [Design document](docs/design.md)
 - [Architecture decision records](docs/adr)
 - [UML diagrams (PlantUML sources)](docs/uml)
