@@ -36,7 +36,7 @@
         <jar.plugin.version>3.5.1</jar.plugin.version>
         <shade.plugin.version>3.6.2</shade.plugin.version>
         <enforcer.plugin.version>3.6.3</enforcer.plugin.version>
-        <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
+        <jacoco.plugin.version>0.8.16</jacoco.plugin.version>
     </properties>
 
     <dependencyManagement>
